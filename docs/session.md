@@ -64,8 +64,7 @@ no se ejecutan como shell; se buscan bajo HOME, excluyendo ocultos, dependencias
 cachés y enlaces simbólicos. El índice se renueva al invocar, con un intervalo
 de 60 segundos; un archivo nuevo puede tardar en aparecer. No se busca contenido.
 
-Acciones disponibles: pantallas (`lxqt-config-monitor`), fondo (`nitrogen`),
-red/VPN (`nm-connection-editor`), contraseñas/SSH (`seahorse`), sonido
+Acciones disponibles: pantallas (`lxqt-config-monitor`), red/VPN (`nm-connection-editor`), contraseñas/SSH (`seahorse`), sonido
 (`pavucontrol`), estado de energía (`st -e watch -n 5 upower --dump`), bloqueo,
 suspensión, reinicio, apagado y cierre de sesión. Las cuatro últimas requieren
 confirmación. Cancelar no ejecuta la acción. Cerrar sesión necesita
@@ -88,8 +87,8 @@ El bloqueo requiere además `xset`, `xss-lock` e `i3lock`, responsabilidad de la
 integración de sesión. Los comandos de reproducción/volumen no justifican
 sustituir un gestor de audio existente ni activar servicios nuevos sin acuerdo.
 
-El inventario acordado para la sesión incluye Dunst, Picom, Nitrogen, nm-applet,
-agente Polkit LXQt, CopyQ, trayer y snixembed; GNOME Keyring/libsecret, GCR SSH
+El inventario acordado para la sesión incluye Dunst, Picom, nm-applet,
+agente Polkit LXQt, CopyQ, tint2 y snixembed; GNOME Keyring/libsecret, GCR SSH
 Agent y Seahorse; lxqt-config-monitor y herramientas de energía del sistema.
 El inventario completo está en `scripts/dependencies.tsv`: incluye los comandos
 del lanzador, libsecret y unidades de sistema/usuario necesarias. El instalador
@@ -119,9 +118,13 @@ arrancando otro gestor de ventanas dentro de la sesión actual.
 
 ## Bandeja, pantallas y bloqueo
 
-La integración acordada usa trayer para XEmbed y snixembed como puente SNI:
-bandeja compacta abajo a la derecha del monitor primario RandR, sin barra completa.
-Debe seguir cambios de primaria/geometría, nunca el foco. No es una bandeja
+La integración usa tint2 para XEmbed y snixembed como puente SNI:
+bandeja compacta abajo a la derecha del monitor primario RandR, sin barra completa,
+reloj ni tareas. El default `/usr/local/share/wm/tint2rc` usa anchura dinámica,
+altura de 24 píxeles e iconos de hasta 20, sin reservar una franja de pantalla.
+El supervisor reinicia solo la bandeja ante cambios de primaria/geometría,
+nunca por foco. No se necesitan Trayer ni Nitrogen; se mantiene un fondo liso
+claro (#f6f5f4) con xsetroot, sin wallpaper ni acción «Fondo». No es una bandeja
 implementada dentro de dwm. snixembed tiene soporte AppIndicator limitado;
 no se garantiza que todos los iconos de todas las aplicaciones sean compatibles.
 
@@ -181,7 +184,7 @@ requiere una fase posterior autorizada.
 - [brightnessctl: clase, mínimo y permisos](https://github.com/Hummer12007/brightnessctl)
 - [Flameshot: interfaz de captura y opciones](https://flameshot.org/docs/advanced/commandline-options/)
 - [snixembed: alcance y soporte AppIndicator](https://man.archlinux.org/man/snixembed.1.en)
-- [trayer: opciones y monitor primario](https://github.com/sargon/trayer-srg)
+- [tint2: bandeja, tamaño dinámico y monitor primario](https://man.archlinux.org/man/tint2.1.en)
 - [lxqt-config: configuración de pantallas](https://github.com/lxqt/lxqt-config)
 - [xss-lock: bloqueo y suspensión](https://man.archlinux.org/man/xss-lock.1.en)
 - [Dunst: configuración](https://dunst-project.org/documentation/)
@@ -192,4 +195,4 @@ requiere una fase posterior autorizada.
 - [NetworkManager](https://wiki.archlinux.org/title/NetworkManager)
 - [systemctl: habilitación sin inicio](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)
 - [snixembed en Arch](https://archlinux.org/packages/extra/x86_64/snixembed/)
-- [trayer en AUR](https://aur.archlinux.org/packages/trayer)
+- [tint2 en Arch](https://archlinux.org/packages/extra/x86_64/tint2/)

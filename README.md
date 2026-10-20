@@ -6,6 +6,8 @@ lanzador combinado, notificaciones, compositor y bloqueo. Apariencia clara
 Adwaita/Fusion solo en sus descendientes. No reemplaza ni desinstala Plasma.
 
 La [guía de sesión](docs/session.md) recoge atajos, componentes y límites.
+Bandeja tint2 con puente snixembed y fondo liso claro, sin wallpaper ni selector;
+no se requieren Nitrogen, Trayer ni GTK2 para esas funciones.
 
 ## Instalar con el script
 
@@ -63,6 +65,7 @@ sudo install -Dm755 scripts/wm-supervisor /usr/local/bin/wm-supervisor
 sudo install -Dm755 scripts/wm-launcher /usr/local/bin/wm-launcher
 sudo install -Dm644 session/picom.conf /usr/local/share/wm/picom.conf
 sudo install -Dm644 session/dunstrc /usr/local/share/wm/dunstrc
+sudo install -Dm644 session/tint2rc /usr/local/share/wm/tint2rc
 sudo install -Dm644 session/wm.desktop /usr/share/xsessions/wm.desktop
 sudo install -Dm644 session/wm-st.desktop /usr/local/share/applications/wm-st.desktop
 sudo install -Dm644 session/dwm-xdg-terminals.list /usr/local/share/xdg-terminal-exec/dwm-xdg-terminals.list
@@ -85,7 +88,7 @@ existente a ciegas: resolver el conflicto antes. El script es la vía recomendad
 | Binarios y entrada de sesión | `/usr/local/bin` |
 | Manuales | `/usr/local/share/man/man1` |
 | Terminfo generado por el script | `/usr/local/share/terminfo` |
-| Defaults de Dunst/Picom | `/usr/local/share/wm` |
+| Defaults de Dunst/Picom/tint2 | `/usr/local/share/wm` |
 | Sesión X11 para SDDM | `/usr/share/xsessions/wm.desktop` |
 | Entrada de st / selección de terminal | `/usr/local/share/applications`, `/usr/local/share/xdg-terminal-exec` |
 

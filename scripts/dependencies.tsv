@@ -56,13 +56,12 @@ command	loginctl	systemd	/usr/bin/loginctl
 command	gdbus	glib2	/usr/bin/gdbus
 command	dunst	dunst	/usr/bin/dunst
 command	picom	picom	/usr/bin/picom
-command	nitrogen	nitrogen	/usr/bin/nitrogen
 command	nm-applet	network-manager-applet	/usr/bin/nm-applet
 command	nm-connection-editor	nm-connection-editor	/usr/bin/nm-connection-editor
 command	lxqt-policykit-agent	lxqt-policykit	/usr/bin/lxqt-policykit-agent
 command	lxqt-config-monitor	lxqt-config	/usr/bin/lxqt-config-monitor
 command	snixembed	snixembed	/usr/bin/snixembed
-command	trayer	trayer	/usr/bin/trayer
+command	tint2	tint2	/usr/bin/tint2
 command	xrandr	xorg-xrandr	/usr/bin/xrandr
 command	xset	xorg-xset	/usr/bin/xset
 command	xsetroot	xorg-xsetroot	/usr/bin/xsetroot

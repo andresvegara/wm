@@ -83,10 +83,7 @@ def monitors(previous, tray, children, log):
         if tray is not None:
             stop(tray)
             children[:] = [(p, critical) for p, critical in children if p is not tray]
-        tray = start(children, ["trayer", "--edge", "bottom", "--align", "right",
-                               "--widthtype", "request", "--height", "24",
-                               "--monitor", "primary", "--SetDockType", "true",
-                               "--SetPartialStrut", "false", "--tint", "0xf6f5f4"], log)
+        tray = start(children, ["tint2", "-c", str(DATA / "tint2rc")], log)
     return state, tray
 
 
@@ -95,7 +92,7 @@ def run():
         raise RuntimeError("selecciona la sesión dwm X11 en el gestor de acceso")
     if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
         raise RuntimeError("falta el bus de sesión; inicia desde SDDM")
-    for config in ("dunstrc", "picom.conf"):
+    for config in ("dunstrc", "picom.conf", "tint2rc"):
         if not (DATA / config).is_file():
             raise RuntimeError("falta configuración de sesión: {}".format(DATA / config))
     if command(["wmctrl", "-m"], required=False).returncode == 0:
@@ -153,7 +150,6 @@ def run():
                     raise RuntimeError("no apareció el socket GCR de esta sesión")
                 os.environ["SSH_AUTH_SOCK"] = str(agent)
             command(["xsetroot", "-solid", "#f6f5f4"])
-            command(["nitrogen", "--restore"], required=False)
             notification = start(children, ["dunst", "-conf", str(DATA / "dunstrc")], log)
             ready(notification, "org.freedesktop.Notifications")
             start(children, ["picom", "--config", str(DATA / "picom.conf")], log, required=False)

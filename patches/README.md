@@ -53,7 +53,7 @@ The activation behavior matches the community
 [focusonnetactive](https://dwm.suckless.org/patches/focusonnetactive/) feature,
 whose page credits Danny O'Brien. Its original 6.2 diff was not applied; this
 version integrates the behavior with the recorded base and tests across
-monitors. No systray patch has been applied: the session integration will reuse trayer and
+monitors. No systray patch has been applied: the session uses tint2 and
 snixembed instead of duplicating tray services in dwm. launcherbinding depends on
 the profile and the wm-launcher runtime installed by the coordinator. docks
 allows the external tray to keep its requested corner geometry, stay above
