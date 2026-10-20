@@ -134,6 +134,22 @@ def identity(outputs):
     return hashlib.sha256(json.dumps(devices).encode()).hexdigest()
 
 
+def window_identity(outputs):
+    devices = []
+    for name, output in sorted(outputs.items()):
+        geometry = (output["mode"], output["rate"], output["rotation"], output["x"],
+                    output["y"], output["primary"]) if output["enabled"] else None
+        devices.append((name, output["edid"], geometry))
+    return hashlib.sha256(json.dumps(devices).encode()).hexdigest()
+
+
+def publish_window_setup(value):
+    if value != "pending" and not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise RuntimeError("identificador de disposición inválido")
+    command(["xprop", "-root", "-f", "_WM_DISPLAY_SETUP", "8s",
+             "-set", "_WM_DISPLAY_SETUP", value])
+
+
 def layout(draft):
     result = copy.deepcopy(draft)
     visiting, done = set(), set()
@@ -428,6 +444,7 @@ def transaction(base, initial, apply, confirm, monitor=None):
         ready, _, _ = select.select([ready_read], [], [], 5)
         if not ready or os.read(ready_read, 1) != b"R":
             raise RuntimeError("el watchdog no está listo; no se aplicó el cambio")
+        publish_window_setup("pending")
         apply()
         current = state()
         if identity(current) != expected:
@@ -539,15 +556,18 @@ def report(error, monitor=None):
 
 
 def watch(base, monitor=None):
-    seen = pending = None
+    seen = previous = None
     while True:
         try:
             current = state()
             key = identity(current)
-            if key != seen and key == pending:
+            marker = key, window_identity(current)
+            if marker == previous:
                 with locked(base, "edit"):
                     current = state()
-                    if identity(current) == key:
+                    if (identity(current), window_identity(current)) != marker:
+                        raise TopologyChanged("pantallas cambiadas al comprobar estabilidad")
+                    if key != seen:
                         current = settle()
                         if identity(current) != key:
                             raise TopologyChanged("pantallas cambiadas al estabilizar salidas")
@@ -558,17 +578,21 @@ def watch(base, monitor=None):
                         else:
                             configure(base, current, monitor)
                         seen = key
-            pending = key
+                    current = state()
+                    if (identity(current), window_identity(current)) == marker:
+                        publish_window_setup(marker[1])
+            previous = marker
         except Busy:
             pass
         except TopologyChanged:
-            pending = None
+            previous = None
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-            if pending is not None and pending != seen:
+            if previous is not None and previous[0] != seen:
                 report(error, monitor)
             else:
                 print("wm-displays: {}".format(error), file=sys.stderr)
-            seen = pending
+            if previous is not None:
+                seen = previous[0]
         time.sleep(2)
 
 

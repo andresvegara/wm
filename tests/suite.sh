@@ -92,6 +92,7 @@ if [ -f "$root/checkouts.tsv" ]; then
 fi
 
 cc -std=c99 -pedantic -Wall -Wno-deprecated-declarations \
+    -fsanitize=address,undefined -fno-sanitize-recover=all \
     -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=700 -DVERSION=\"6.8\" -DXINERAMA \
     -I"$tmp/dwm" $(pkg-config --cflags x11 xft xinerama) \
     "$root/tests/dwm-core.c" "$tmp/dwm/drw.o" "$tmp/dwm/util.o" \

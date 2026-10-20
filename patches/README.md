@@ -50,6 +50,9 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | launchdocs | Document visible startup failures and limits. |
 | osdprofile | Personal volume/brightness bindings to wm-control. |
 | osddocs | Document real-state OSD feedback and unchanged control limits. |
+| windowsetups | Per-client geometry history and private display-transition protocol. |
+| windowsetupnoop | Do not leave a no-op root configure event pending. |
+| windowsetupdocs | Document in-memory history, exclusions and limits. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -78,6 +81,14 @@ on the earlier focus/fullscreen changes; it is not an XEmbed implementation.
 Sessionkeys follows the profile/launcherbinding and depends at runtime on
 playerctl, wpctl, brightnessctl, Flameshot and wm-launcher (see docs/session.md).
 Sessiondocs follows sessionkeys and changes only documentation.
+Windowsetups builds on monitor placement, fullscreen/snap, docks and initial
+centering. It stores up to sixteen normal rectangles/monitor indices per live
+client, in memory, and coordinates `_WM_DISPLAY_SETUP` with wm-displays. Pending
+captures happen before updategeom; ready restores after stable display setup.
+Current fullscreen/snap state and keyboard focus are retained; docks/tiled clients
+are excluded. Windowsetupnoop avoids treating unchanged root geometry as an
+unfinished transition. Windowsetupdocs follows both. Tests call real configure,
+property and geometry functions with synthetic layouts and Xlib substitutes.
 Osdprofile follows launchprofile and depends at runtime on the coordinator's
 wm-control, wpctl, brightnessctl and notify-send/Dunst; it does not add another
 key-grabbing daemon or audio backend. Osddocs follows it. Tests verify every

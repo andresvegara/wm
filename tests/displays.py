@@ -56,6 +56,8 @@ assert not module.parse(one.replace("Transform: 1.000000", "Transform: 2.000000"
 assert not module.parse(one.replace("normal (normal", "normal x axis (normal"))["DP-1"]["supported"]
 assert module.identity(parsed) == module.identity(module.parse(verbose([screen(x=50, primary=False)])))
 assert module.identity(parsed) != module.identity(module.parse(two))
+assert module.window_identity(parsed) != module.window_identity(module.parse(verbose([screen(x=50)])))
+assert module.window_identity(parsed) == module.window_identity(module.parse(one))
 assert module.identity(parsed) != module.identity(module.parse(one.replace("01" * 16, "02" * 16)))
 for text in ("invalid", "DP-1 connected", one.replace("DP-1 connected", "-bad connected"),
              one.replace("Cinema-wide (", "--bad ("),
@@ -119,7 +121,7 @@ class World:
         self.current.write_text(one)
         self.events = work / "events"
         self.events.write_text("")
-        self.fail_save = self.fail_apply = False
+        self.fail_save = self.fail_apply = self.fail_publish = False
 
     def command(self, argv, env=None):
         with self.events.open("a") as log:
@@ -127,6 +129,12 @@ class World:
         if argv == ["xrandr", "--verbose"]:
             assert env["LC_ALL"] == "C"
             return self.current.read_text()
+        if argv[0] == "xprop":
+            assert argv[:7] == ["xprop", "-root", "-f", "_WM_DISPLAY_SETUP", "8s", "-set", "_WM_DISPLAY_SETUP"]
+            assert argv[7] == "pending" or (len(argv[7]) == 64 and all(c in "0123456789abcdef" for c in argv[7]))
+            if self.fail_publish:
+                raise RuntimeError("synthetic xprop failure")
+            return ""
         if argv[0] == "autorandr":
             assert argv[1] == "--ignore-lid"
             assert env["HOME"] != os.environ["HOME"]
@@ -206,9 +214,13 @@ except RuntimeError:
 original_choose = module.choose
 for choice, kept in ((True, True), (False, False), (None, False)):
     world.current.write_text(one)
+    world.events.write_text("")
     module.choose = lambda *args, selected=choice, **kwargs: selected
     assert module.transaction(base, module.state(), lambda: world.command(["xrandr", "--test"]), True) == kept
     assert world.current.read_text() == (verbose([screen(x=100)]) if kept else one)
+    lines = world.events.read_text().splitlines()
+    assert next(i for i, line in enumerate(lines) if "'pending'" in line) < next(
+        i for i, line in enumerate(lines) if "'--test'" in line)
     assert not list(base.glob("rollback-*"))
 world.current.write_text(one)
 world.fail_apply = True
@@ -230,6 +242,16 @@ except RuntimeError as error:
 finally:
     module.os.setsid = original_setsid
 assert world.current.read_text() == one and not list(base.glob("rollback-*"))
+
+world.fail_publish = True
+world.events.write_text("")
+try:
+    module.transaction(base, module.state(), lambda: world.command(["xrandr", "--test"]), True)
+    raise AssertionError("application without snapshot signal admitted")
+except RuntimeError:
+    pass
+assert "'--test'" not in world.events.read_text() and world.current.read_text() == one
+world.fail_publish = False
 
 # Known profiles are loaded without asking for confirmation.
 module.choose = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected confirmation"))
@@ -380,6 +402,7 @@ initial_configure, initial_transaction, initial_sleep = module.configure, module
 actions = []
 module.configure = lambda base, current, monitor=None: actions.append(("new", module.identity(current)))
 module.transaction = lambda base, current, apply, confirm, monitor=None: actions.append(("known", module.identity(current)))
+world.events.write_text("")
 sequence = iter([one, verbose([screen(x=500)]), two, two, two, one, one])
 world.current.write_text(one)
 
@@ -398,6 +421,46 @@ try:
 except Done:
     pass
 assert actions == [("known", key), ("new", module.identity(module.parse(two))), ("known", key)]
+published = [line for line in world.events.read_text().splitlines() if "'xprop'" in line]
+assert len(published) == 4  # stable initial, new, heartbeat, reconnect; no geometry loop
+world.events.write_text("")
+sequence = iter([one, one])
+actions.clear()
+with module.locked(base, "edit"):
+    try:
+        module.watch(base)
+    except Done:
+        pass
+assert not actions and "'xprop'" not in world.events.read_text()
+try:
+    module.publish_window_setup("invalid")
+    raise AssertionError("invalid setup signal accepted")
+except RuntimeError:
+    pass
+world.current.write_text(one)
+world.events.write_text("")
+after = verbose([screen(x=100)])
+module.transaction = lambda *args, **kwargs: world.current.write_text(after)
+steps = 0
+
+
+def stable_tick(seconds):
+    global steps
+    assert seconds == 2
+    if steps == 1:
+        assert "'xprop'" not in world.events.read_text()  # changed geometry is not ready yet
+    steps += 1
+    if steps == 5:
+        raise Done
+
+
+module.time.sleep = stable_tick
+try:
+    module.watch(base)
+except Done:
+    pass
+published = [line for line in world.events.read_text().splitlines() if "'xprop'" in line]
+assert len(published) == 2 and all(module.window_identity(module.parse(after)) in line for line in published)
 module.configure, module.transaction, module.time.sleep = initial_configure, initial_transaction, initial_sleep
 module.choose, module.command = original_choose, original_command
 print("PASS: display parsing/layouts, private atomic profiles, locks, editor, watchdog rollback and hotplug (no X)")
