@@ -67,6 +67,7 @@ Order is recorded in `st/series`:
 | reflow | Reflow default screen/history on resize; preserve alternate screen. |
 | mousehistory | Mouse dispatch to history, with alternate-screen fallback. |
 | historybindings | Personal keyboard/wheel bindings, after mousehistory/reflow. |
+| historydocs | User documentation and provenance for terminal history. |
 
 Source artifacts are preserved unchanged in `upstream/st/`, with SHA256SUMS
 checked by make test. Sources and attribution:

@@ -1,0 +1,23 @@
+diff --git a/README b/README
+index 7516955..d1ebdef 100644
+--- a/README
++++ b/README
+@@ -13,7 +13,17 @@ The wm profile uses Hack Nerd Font Mono at 11 points, a Noto Color Emoji
+ fallback, the existing Alacritty palette, zero fixed padding, a blinking block
+ cursor, Ctrl+Insert copy and familiar copy/paste/zoom shortcuts. The alpha patch
+ sets background opacity to 0.9; transparency and blur require a compositor.
+-No blur implementation is added to st itself. Scrollback/reflow is not ready.
++No blur implementation is added to st itself. Scrollback holds 2000 physical
++rows, with resize reflow of the default screen/history and separate alternate
++screen contents. Shift+PageUp/PageDown scrolls a page; the wheel scrolls three
++rows unless the application requests mouse events (Shift overrides it).
++Column changes clear the selection. The core is tested with ASan/UBSan and
++synthetic input, not a live terminal session.
++
++History/reflow adapts the suckless community scrollback 0.9.2 and reflow 0.9.2
++patches, based on work by BeyondMagic et al. The bounded resize ring and wide
++cell handling follow bakkeby/st-flexipatch (MIT/X Consortium license). Sources
++and provenance are retained in the parent wm repository under patches/upstream.
+ Color emoji and visual rendering still need a later authorized visual test.
+ TERM remains st-256color; prepare matching terminfo during future installation,
+ including remote hosts where it is needed. Do not substitute TERM blindly.
