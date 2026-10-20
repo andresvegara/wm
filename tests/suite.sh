@@ -20,13 +20,25 @@ for sums in "$root"/patches/upstream/*/SHA256SUMS; do
 	(cd "$(dirname "$sums")" && sha256sum --check SHA256SUMS)
 done
 
-while IFS="$tab" read -r project url revision; do
+git -C "$root" check-ignore -q .history-backups/ ||
+    fail 'history backups must be ignored'
+
+while IFS="$tab" read -r project url upstream revision tree; do
 	case "$project" in
 	dwm|dmenu|st) ;;
 	*) fail "unknown project: $project" ;;
 	esac
 	git -C "$root/$project" merge-base --is-ancestor "$revision" HEAD ||
-	    fail "$project: history does not contain the recorded base"
+	    fail "$project: history does not contain the local import"
+	[ "$(git -C "$root/$project" rev-list --max-parents=0 --all)" = "$revision" ] ||
+	    fail "$project: history has an inherited or unexpected root"
+	[ "$(git -C "$root/$project" rev-parse "$revision^{tree}")" = "$tree" ] ||
+	    fail "$project: import differs from the original source tree"
+	if git -C "$root/$project" cat-file -e "$upstream^{commit}" 2>/dev/null; then
+		fail "$project: inherited upstream commit object is present"
+	fi
+	[ "$(git -C "$root/$project" remote)" = origin ] ||
+	    fail "$project: unexpected remotes"
 	git -C "$root" check-ignore -q "$project/" ||
 	    fail "$project: source checkout is not ignored"
 	[ -z "$(git -C "$root/$project" ls-files --others --exclude-standard)" ] ||

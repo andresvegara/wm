@@ -12,7 +12,7 @@ monitores y cierre normal. `tests/dwm-core.c` prueba funciones reales con Xlib
 simulado; no abre un display.
 
 st tiene una serie parcial: tamaño libre, transparencia, cursor parpadeante y
-perfil de Alacritty, con tests Xlib/Xft simulados y UBSan. Falta su historial.
+perfil de Alacritty, con tests Xlib/Xft simulados y UBSan. Falta scrollback/reflow.
 También faltan la bandeja, los componentes de sesión y el lanzador combinado.
 Windows+Espacio usa temporalmente dmenu_run. Configurar fuentes emoji no
 acredita todavía su renderizado. Hay avisos de funciones upstream sin uso tras
@@ -20,18 +20,24 @@ retirar sus atajos, no una compilación libre de warnings.
 
 ## Organización
 
-- `dwm/`, `dmenu/`, `st/`: repositorios upstream independientes, ignorados aquí.
-- `sources.tsv`: URLs oficiales y revisiones base completas.
+- `dwm/`, `dmenu/`, `st/`: repositorios propios independientes, ignorados aquí.
+- `sources.tsv`: proyecto, URL oficial, revisión oficial de procedencia,
+  commit raíz local de importación y árbol original (cinco campos TSV).
 - `checkouts.tsv`: destinos personales y HEAD locales del checkpoint.
 - `patches/`: diffs exportados y orden de aplicación por proyecto.
 - `scripts/`: herramientas del proyecto; no hay instalador ni activación.
 - `tests/`: validación aislada, sin conectarse a X11, Wayland o D-Bus.
 
 El directorio físico sigue siendo `/home/kafka/dwm`; su repositorio raíz es
-ahora el coordinador y el historial original de dwm está en `dwm/.git`.
+el coordinador. Cada checkout tiene un historial nuevo: un primer commit con
+el código original y después solo sus commits locales por funcionalidad. No
+hereda commits, ramas ni tags oficiales; conserva licencias y atribuciones.
+Los .git anteriores están respaldados localmente en .history-backups/ e
+ignorados por wm. El historial propio del coordinador no se reemplazó.
+
 No hay submódulos. Clonar únicamente el coordinador no obtiene los tres
-proyectos: las bases oficiales se registran en `sources.tsv`; los HEAD locales
-para retomar un checkpoint se registran en `checkouts.tsv`.
+proyectos. sources.tsv relaciona procedencia e importaciones locales;
+checkouts.tsv identifica los HEAD para retomar un checkpoint.
 
 ## Validación
 
@@ -39,7 +45,8 @@ para retomar un checkpoint se registran en `checkouts.tsv`.
 make test
 ```
 
-Verifica las bases y los árboles ignorados, reconstruye las fuentes desde Git
+Verifica que cada importación es la única raíz de su historial y conserva el
+árbol original, sin el commit oficial en el .git nuevo. Reconstruye las fuentes
 más los parches, compila cada prefijo de serie y comprueba que el resultado
 coincide con los checkouts. También prueba el exportador con cambios sintéticos.
 Los tres proyectos se compilan en temporales. Los tests usan HOME temporal y
@@ -77,7 +84,8 @@ No usar git am ni force-push.
 ## Retomar en otro ordenador
 
 **El checkpoint aún no está publicado.** Los commits de dwm y st son locales
-mientras se resuelve SSH. dmenu sigue en su base oficial, sin commits vacíos.
+mientras se resuelve SSH. dmenu solo tiene su commit propio de importación,
+sin cambios funcionales ni commits vacíos.
 Cuando se reanude el acceso, publicar primero los tres repositorios de fuentes
 sin force-push y después wm, para que sus revisiones ya sean accesibles.
 
@@ -93,9 +101,11 @@ done < checkouts.tsv
 make test
 ```
 
-Las bases y parches siguen permitiendo reconstruir el código sin depender de
-las ramas personales. Los tests admiten commits descendientes de la base, pero
-siguen exigiendo que base + serie reproduzca exactamente las fuentes.
+Las importaciones locales y los parches permiten reconstruir el código sin
+necesitar los historiales oficiales. Los tests admiten commits descendientes
+de cada raíz propia y exigen que importación + serie reproduzca exactamente
+las fuentes. Los nombres de los parches conservan el hash oficial únicamente
+para identificar su procedencia y compatibilidad.
 Consultar ARCHITECTURE.md para continuar: completar scrollback/reflow de st,
 después dmenu; bandeja y servicios de sesión siguen pendientes. No activar aún.
 
