@@ -66,6 +66,7 @@ Order is recorded in `st/series`:
 | scrollback | Bounded history, selection and alternate-screen isolation. |
 | reflow | Reflow default screen/history on resize; preserve alternate screen. |
 | mousehistory | Mouse dispatch to history, with alternate-screen fallback. |
+| historybindings | Personal keyboard/wheel bindings, after mousehistory/reflow. |
 
 Source artifacts are preserved unchanged in `upstream/st/`, with SHA256SUMS
 checked by make test. Sources and attribution:

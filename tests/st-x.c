@@ -187,6 +187,10 @@ testprofile(void)
 	assert(shortcut(XK_equal, ControlMask)->func == zoom);
 	assert(shortcut(XK_minus, ControlMask)->arg.f == -1);
 	assert(shortcut(XK_0, ControlMask)->func == zoomreset);
+	assert(shortcut(XK_Prior, ShiftMask)->func == kscrollup);
+	assert(shortcut(XK_Next, ShiftMask)->func == kscrolldown);
+	assert(mshortcuts[1].func == mousescroll && mshortcuts[1].arg.i == 3);
+	assert(mshortcuts[2].func == mousescroll && mshortcuts[2].arg.i == -3);
 
 	/* Parse a supplied pattern; do not discover or load real fonts. */
 	pattern = FcNameParse((const FcChar8 *)font);

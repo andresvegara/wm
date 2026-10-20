@@ -2,14 +2,14 @@ diff --git a/x.c b/x.c
 index 8451096..68a472d 100644
 --- a/x.c
 +++ b/x.c
-@@ -176,6 +176,7 @@ static void resize(XEvent *);
- static void focus(XEvent *);
- static uint buttonmask(uint);
- static int mouseaction(XEvent *, uint);
+@@ -52,6 +52,7 @@ typedef struct {
+ /* function definitions used in config.h */
+ static void clipcopy(const Arg *);
+ static void clippaste(const Arg *);
 +static void mousescroll(const Arg *);
- static void brelease(XEvent *);
- static void bpress(XEvent *);
- static void bmotion(XEvent *);
+ static void numlock(const Arg *);
+ static float parsealpha(const char *);
+ static void selpaste(const Arg *);
 @@ -483,6 +484,19 @@ mouseaction(XEvent *e, uint release)
  	return 0;
  }
