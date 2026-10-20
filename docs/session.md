@@ -143,9 +143,12 @@ arrancando otro gestor de ventanas dentro de la sesión actual.
 ## Bandeja, pantallas y bloqueo
 
 La integración usa tint2 para XEmbed y snixembed como puente SNI:
-bandeja compacta abajo a la derecha del monitor primario RandR, sin barra completa,
-reloj ni tareas. El default `/usr/local/share/wm/tint2rc` usa anchura dinámica,
+bandeja compacta abajo a la derecha del monitor primario RandR, con reloj y sin
+barra completa ni tareas. El default `/usr/local/share/wm/tint2rc` usa anchura dinámica,
 altura de 24 píxeles e iconos de hasta 20, sin reservar una franja de pantalla.
+A la derecha de los iconos aparece la fecha y hora local en una línea:
+`2026-10-20 03:04:05` (`%Y-%m-%d %H:%M:%S`), formato 24 horas con segundos y
+ceros iniciales. Lo genera el reloj nativo de tint2, sin scripts adicionales.
 El supervisor reinicia solo la bandeja ante cambios de primaria/geometría,
 nunca por foco. No se necesitan Trayer ni Nitrogen; se mantiene un fondo liso
 claro (#f6f5f4) con xsetroot, sin wallpaper ni acción «Fondo». No es una bandeja
