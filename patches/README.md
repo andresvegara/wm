@@ -64,6 +64,7 @@ Order is recorded in `st/series`:
 | profile | Alacritty font/palette, padding, opacity and clipboard/zoom bindings. |
 | documentation | Current options, bindings and explicit development limits. |
 | scrollback | Bounded history, selection and alternate-screen isolation. |
+| reflow | Reflow default screen/history on resize; preserve alternate screen. |
 
 Source artifacts are preserved unchanged in `upstream/st/`, with SHA256SUMS
 checked by make test. Sources and attribution:
@@ -91,8 +92,18 @@ to this series, separately from bindings. It tracks valid history lines instead
 of exposing uninitialized rows, bounds scrolling and does not save alternate
 screen output. The original is retained with its checksum. tests/st-core.c uses
 synthetic terminal input, frontend substitutes and ASan/UBSan, without a PTY/X.
-Reflow is the next dependent feature; plain scrollback alone does not preserve
-columns hidden by a width reduction. Transparency, blur and emoji appearance are not visually
+Reflow depends on scrollback. It adapts the community
+[0.9.2 reflow patch](https://st.suckless.org/patches/scrollback/st-scrollback-reflow-0.9.2.diff)
+to 0.9.3, retaining the upstream dummy-cell guard and clear-region bounds.
+The bounded resize ring, wide-cell boundary handling and allocation cleanup
+follow [st-flexipatch/reflow.c](https://github.com/bakkeby/st-flexipatch/blob/master/patch/reflow.c),
+based on work by BeyondMagic et al. Both source artifacts and the flexipatch MIT
+license are preserved. Local adaptations handle one-column widths, hide the
+cursor while scrolled, correct selection coordinates and avoid overflow in
+large erase/insert/delete requests. Tests preserve 300 mixed ASCII/CJK runes
+through width/height changes and alternate screens, then stress 5,000 synthetic
+runes/resizes under ASan/UBSan. Width changes clear an active selection instead
+of retaining invalid cell coordinates. Transparency, blur and emoji appearance are not visually
 validated; blur is a compositor responsibility, not another st patch.
 
 ## Exporting the next functionality

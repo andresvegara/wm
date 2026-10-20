@@ -69,6 +69,68 @@ history(void)
 	assert(!term.histf && !term.scr);
 }
 
+static size_t
+contents(Rune *out)
+{
+	size_t n = 0;
+	int y, x;
+	Line line;
+
+	for (y = -term.histf; y < term.row; y++) {
+		line = TLINEABS(y);
+		for (x = 0; x < tlinelen(line); x++)
+			if (!(line[x].mode & ATTR_WDUMMY) && line[x].u != ' ')
+				out[n++] = line[x].u;
+	}
+	return n;
+}
+
+static void
+reflow(void)
+{
+	Rune before[10000], after[10000];
+	int widths[] = {7, 3, 2, 1, 8, 24, 5, 16};
+	int i, j, alt = 1049;
+	size_t n;
+
+	treset();
+	for (i = 0; i < 300; i++)
+		tputc(i % 5 ? 'a' + i % 26 : 0x4e2d);
+	n = contents(before);
+	assert(n == 300);
+	for (j = 0; j < 3; j++) {
+		for (i = 0; i < LEN(widths); i++) {
+			tresize(widths[i], 4 + j);
+			assert(contents(after) == n);
+			assert(!memcmp(before, after, n * sizeof(Rune)));
+			assert(BETWEEN(term.c.x, 0, term.col - 1));
+			assert(BETWEEN(term.c.y, 0, term.row - 1));
+		}
+	}
+	tsetmode(1, 1, &alt, 1);
+	tputc('Q');
+	tresize(9, 3);
+	tresize(12, 8);
+	tsetmode(1, 0, &alt, 1);
+	assert(contents(after) == n);
+	assert(!memcmp(before, after, n * sizeof(Rune)));
+	tresize(0, 0);
+	assert(term.col == 12 && term.row == 8);
+	tdeletechar(INT_MAX);
+	tinsertblank(INT_MAX);
+	csiescseq.mode[0] = 'X';
+	csiescseq.arg[0] = INT_MAX;
+	csihandle();
+	for (i = 0; i < 5000; i++) {
+		tputc(i % 11 ? 'z' : 0x4e2d);
+		if (!(i % 7))
+			tresize(1 + (i * 13) % 79, 1 + i % 11);
+		assert(BETWEEN(term.histf, 0, HISTSIZE));
+		assert(BETWEEN(term.c.x, 0, term.col - 1));
+		assert(BETWEEN(term.c.y, 0, term.row - 1));
+	}
+}
+
 int
 main(void)
 {
@@ -76,6 +138,7 @@ main(void)
 	selinit();
 	tnew(16, 4);
 	history();
-	puts("PASS: st history capacity, selection, reset and alternate screen (no PTY/X)");
+	reflow();
+	puts("PASS: st bounded history, selection, Unicode reflow, resize and alternate screen (ASan/UBSan; no PTY/X)");
 	return 0;
 }
