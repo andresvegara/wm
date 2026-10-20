@@ -12,7 +12,10 @@ Las instrucciones de instalación conjunta y por componente están en el
 ## Uso y atajos
 
 Super es la tecla Windows. Se conserva un solo escritorio, ventanas flotantes y
-foco por clic, no por pasar el ratón.
+foco siguiendo el cursor entre ventanas y monitores, también sobre el fondo
+vacío. Los docks no reciben foco. Pasar el cursor no levanta ni mueve ventanas;
+el clic sí las levanta. Los atajos abren ventanas nuevas/dmenu en el monitor
+activo; jumpapp enfoca las existentes donde estén, sin trasladarlas.
 
 | Atajo | Acción |
 | --- | --- |

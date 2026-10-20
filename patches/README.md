@@ -43,6 +43,8 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | superclosedocs | Document Super+Q alongside Ctrl+Q and Alt+F4. |
 | centerfloating | Center newly managed floating clients, excluding docks/fullscreen. |
 | centerfloatingdocs | Document initial placement and assigned-monitor behavior. |
+| pointerfocus | Restore pointer focus across clients/monitors without focusing docks. |
+| pointerfocusdocs | Document pointer focus and existing-window behavior. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -71,6 +73,12 @@ on the earlier focus/fullscreen changes; it is not an XEmbed implementation.
 Sessionkeys follows the profile/launcherbinding and depends at runtime on
 playerctl, wpctl, brightnessctl, Flameshot and wm-launcher (see docs/session.md).
 Sessiondocs follows sessionkeys and changes only documentation.
+Pointerfocus supersedes the historical clickfocus behavior without rewriting
+that patch. It restores upstream-style EnterNotify focus, uses crossing coordinates
+on the root, and switches monitors on root MotionNotify immediately (no static
+previous-monitor state). It depends on the existing dock/focus code; dock crossings
+may select their monitor but focus a normal client, never the dock. Pointerfocusdocs
+follows it. Tests use synthetic crossing/motion events with real focus handlers.
 Centerfloating follows the existing docks/fullscreen/monitor changes. It centers
 once during manage, using assigned-monitor usable coordinates and outer size;
 transients retain their parent's monitor. Oversized clients stay at the top-left,
