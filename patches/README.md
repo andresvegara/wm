@@ -63,6 +63,7 @@ Order is recorded in `st/series`:
 | blinkingcursor | Real cursor blink scheduling and DECSCUSR styles. |
 | profile | Alacritty font/palette, padding, opacity and clipboard/zoom bindings. |
 | documentation | Current options, bindings and explicit development limits. |
+| scrollback | Bounded history, selection and alternate-screen isolation. |
 
 Source artifacts are preserved unchanged in `upstream/st/`, with SHA256SUMS
 checked by make test. Sources and attribution:
@@ -85,8 +86,13 @@ rebuilt, and the full frontend tests use Xlib/Xft substitutes plus UBSan.
 No real display, font discovery, compositor or terminal process is started.
 Fontconfig parsing tests a supplied family pattern, not installed-font coverage.
 
-st is not complete: scrollback/reflow still needs investigation and isolated
-behavior tests. Transparency, blur and emoji appearance are not visually
+The scrollback patch adapts [the community 0.9.2 patch](https://st.suckless.org/patches/scrollback/st-scrollback-0.9.2.diff)
+to this series, separately from bindings. It tracks valid history lines instead
+of exposing uninitialized rows, bounds scrolling and does not save alternate
+screen output. The original is retained with its checksum. tests/st-core.c uses
+synthetic terminal input, frontend substitutes and ASan/UBSan, without a PTY/X.
+Reflow is the next dependent feature; plain scrollback alone does not preserve
+columns hidden by a width reduction. Transparency, blur and emoji appearance are not visually
 validated; blur is a compositor responsibility, not another st patch.
 
 ## Exporting the next functionality

@@ -104,6 +104,10 @@ cc -std=c99 -pedantic -Wall \
     "$root/tests/st-x.c" "$tmp/st/st.o" -o "$tmp/st-x-test" \
     $(pkg-config --libs x11 xft) -lfontconfig -lm -lutil
 "$tmp/st-x-test"
+cc -std=c99 -pedantic -Wall -fsanitize=address,undefined \
+    -fno-sanitize-recover=all -D_XOPEN_SOURCE=600 -I"$tmp/st" \
+    "$root/tests/st-core.c" -o "$tmp/st-core-test" -lm -lutil
+ASAN_OPTIONS=detect_leaks=0 "$tmp/st-core-test"
 sh "$root/tests/export-patches.sh" "$root" "$tmp"
 sh "$root/tests/install.sh" "$root" "$tmp"
 
