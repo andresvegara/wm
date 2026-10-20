@@ -68,6 +68,15 @@ El supervisor aplica **teclado español de España (`es`, variante predeterminad
 con `setxkbmap` antes de arrancar aplicaciones. No persiste ajustes en `/etc` ni
 en las preferencias de Plasma. Si falla, no inicia los hijos de la sesión.
 
+Los atajos de volumen/silencio/brillo usan `wm-control`. Tras aplicar el cambio,
+consultan el nivel real y muestran un OSD Dunst de 1,5 s con barra porcentual;
+pulsaciones sucesivas reemplazan el aviso del mismo tipo. Volumen y brillo se
+serializan por separado para no mostrar estados viejos. El silencio se indica
+sin desmutear al ajustar volumen. Se conservan pasos de 5%, tope 100% de volumen,
+clase backlight y mínimo 1 de brillo. Si falla una acción o la lectura no es válida,
+se muestra un error en vez de confirmar un nivel inventado. No se añaden servicios
+ni captura de teclas por otro daemon; la bandeja pasystray conserva su configuración.
+
 ## Lanzador
 
 Super+Espacio muestra solo aplicaciones y acciones del sistema, diferenciadas

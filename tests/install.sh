@@ -7,7 +7,7 @@ fixture=$work/source\ tree
 bin=$work/bin
 dest=$work/destination\ tree
 mkdir -p "$fixture/scripts" "$fixture/session" "$bin" "$work/build"
-cp "$root/scripts/install.sh" "$root/scripts/dependencies.tsv" "$root/scripts/wm-launcher" "$root/scripts/wm-supervisor" "$root/scripts/wm-displays" "$root/scripts/wm-run" "$fixture/scripts/"
+cp "$root/scripts/install.sh" "$root/scripts/dependencies.tsv" "$root/scripts/wm-launcher" "$root/scripts/wm-supervisor" "$root/scripts/wm-displays" "$root/scripts/wm-run" "$root/scripts/wm-control" "$fixture/scripts/"
 cp -R "$root/session/." "$fixture/session/"
 cp "$root/checkouts.tsv" "$fixture/checkouts.tsv"
 
@@ -306,6 +306,8 @@ grep -q 'paru -S --needed gcc libxft ttf-hack-nerd noto-fonts-emoji' "$MOCK_LOG"
 [ -x "$dest/usr/local/bin/st" ] || fail 'missing executable'
 [ -x "$dest/usr/local/bin/wm-displays" ] || fail 'missing display manager'
 [ -x "$dest/usr/local/bin/wm-run" ] || fail 'missing launch reporter'
+[ -x "$dest/usr/local/bin/wm-control" ] || fail 'missing OSD controls'
+cmp "$root/scripts/wm-control" "$dest/usr/local/bin/wm-control" || fail 'wrong OSD controls'
 cmp "$root/scripts/wm-run" "$dest/usr/local/bin/wm-run" || fail 'wrong launch reporter'
 cmp "$root/session/pulse-client.conf" "$dest/usr/local/share/wm/pulse-client.conf" || fail 'missing Pulse client default'
 [ "$(stat -c %a "$dest/usr/local/share/wm/pulse-client.conf")" = 644 ] || fail 'Pulse client default mode'

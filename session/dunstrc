@@ -20,3 +20,8 @@
     foreground = "#a51d2d"
     frame_color = "#a51d2d"
     timeout = 0
+
+[wm-osd]
+    appname = wm-osd
+    timeout = 1500ms
+    history_ignore = yes

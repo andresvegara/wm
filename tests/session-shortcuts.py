@@ -44,18 +44,17 @@ binding(control, "XK_q", "killclient", 0)
 binding(alt, "XK_F4", "killclient", 0)
 assert len(expected) == 21
 
-volume = ("wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SINK@")
 commands = {
     "play": ("playerctl", "play-pause"),
     "pause": ("playerctl", "pause"),
     "stop": ("playerctl", "stop"),
     "prev": ("playerctl", "previous"),
     "next": ("playerctl", "next"),
-    "up": (*volume, "5%+"),
-    "down": (*volume, "5%-"),
-    "mute": ("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"),
-    "brightup": ("brightnessctl", "--class=backlight", "--min-value=1", "set", "+5%"),
-    "brightdown": ("brightnessctl", "--class=backlight", "--min-value=1", "set", "5%-"),
+    "up": ("wm-control", "volume-up"),
+    "down": ("wm-control", "volume-down"),
+    "mute": ("wm-control", "mute"),
+    "brightup": ("wm-control", "brightness-up"),
+    "brightdown": ("wm-control", "brightness-down"),
     "capture": ("flameshot", "gui"),
     "lock": ("wm-launcher", "--action", "Bloquear"),
 }
