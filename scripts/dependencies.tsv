@@ -60,7 +60,7 @@ command	picom	picom	/usr/bin/picom
 command	nm-applet	network-manager-applet	/usr/bin/nm-applet
 command	nm-connection-editor	nm-connection-editor	/usr/bin/nm-connection-editor
 command	lxqt-policykit-agent	lxqt-policykit	/usr/bin/lxqt-policykit-agent
-command	lxqt-config-monitor	lxqt-config	/usr/bin/lxqt-config-monitor
+command	autorandr	autorandr	/usr/bin/autorandr
 command	snixembed	snixembed	/usr/bin/snixembed
 command	tint2	tint2	/usr/bin/tint2
 command	xrandr	xorg-xrandr	/usr/bin/xrandr

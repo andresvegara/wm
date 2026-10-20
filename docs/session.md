@@ -66,7 +66,7 @@ con un mínimo de 500 píxeles limitado al monitor. GIO interpreta los archivos
 archivos; no crea, lee ni actualiza índices. Los índices de versiones anteriores
 se ignoran y no se borran automáticamente. Las etiquetas no se ejecutan como shell.
 
-Acciones disponibles: pantallas (`lxqt-config-monitor`), red/VPN (`nm-connection-editor`), contraseñas/SSH (`seahorse`), sonido
+Acciones disponibles: pantallas (`wm-displays`), red/VPN (`nm-connection-editor`), contraseñas/SSH (`seahorse`), sonido
 (`pavucontrol`), estado de energía (`alacritty -e watch -n 5 upower --dump`), bloqueo,
 suspensión, reinicio, apagado y cierre de sesión. Las cuatro últimas requieren
 confirmación. Cancelar no ejecuta la acción. Cerrar sesión necesita
@@ -95,7 +95,7 @@ sustituir un gestor de audio existente ni activar servicios nuevos sin acuerdo.
 
 El inventario acordado para la sesión incluye Dunst, Picom, nm-applet,
 agente Polkit LXQt, CopyQ, tint2 y snixembed; GNOME Keyring/libsecret, GCR SSH
-Agent y Seahorse; lxqt-config-monitor y herramientas de energía del sistema.
+Agent y Seahorse; autorandr/xrandr para pantallas y herramientas de energía del sistema.
 El inventario completo está en `scripts/dependencies.tsv`: incluye los comandos
 del lanzador, libsecret y unidades de sistema/usuario necesarias. El instalador
 comprueba esas unidades además de los ejecutables. No se ejecuta el autostart
@@ -134,11 +134,50 @@ claro (#f6f5f4) con xsetroot, sin wallpaper ni acción «Fondo». No es una band
 implementada dentro de dwm. snixembed tiene soporte AppIndicator limitado;
 no se garantiza que todos los iconos de todas las aplicaciones sean compatibles.
 
-«Pantallas» abre lxqt-config-monitor para posición, resolución, refresco,
-rotación, activación y primaria. El supervisor restaura perfiles compatibles al
-inicio y ante cambios de conexión física, sin bucles por sus propios cambios de
-geometría. Consulta RandR cada dos segundos; los perfiles los guarda la GUI. No se promete escalado independiente por monitor ni validación de
-hotplug real por los tests.
+«Pantallas» abre `wm-displays`, un asistente de menús dmenu centrados. Permite
+activar/desactivar salidas, elegir resolución, frecuencia, rotación y principal,
+y colocar cada pantalla a izquierda/derecha/arriba/abajo de otra, alineando sus
+bordes o centros. Duplicar utiliza una resolución común; resolución y rotación
+se cambian en la pantalla de referencia. Las posiciones relativas se recalculan
+al editar el borrador; se guardan las posiciones resultantes. No se puede apagar
+todo ni crear referencias circulares. Cancelar un menú vuelve atrás sin aplicar.
+
+Pulsa **Aplicar y guardar** y confirma **Conservar y guardar** en 15 segundos.
+Si cancelas, no confirmas, falla la aplicación o termina el configurador antes
+de confirmar, un watchdog independiente restaura el estado anterior. Los límites
+de modos/framebuffer se comprueban con `xrandr --dryrun`. Si guardar falla después
+de confirmar, se conserva la disposición y se avisa de que no quedó persistida.
+Una pantalla físicamente desenchufada no se puede restaurar: se conservan las
+salidas presentes y, si no queda ninguna activa, se intenta activar una conectada.
+Un fallo del servidor X o del driver puede impedir incluso esa recuperación.
+
+El supervisor arranca `wm-displays --watch` después de dwm. Consulta cada dos
+segundos y espera dos lecturas iguales de la combinación de salidas/EDID:
+- **Setup conocido:** restaura el último perfil confirmado, sin preguntas.
+- **Setup nuevo:** abre el asistente una vez; cancelar no vuelve a abrirlo en bucle.
+  Puede retomarse desde «Pantallas». Al confirmar se guarda automáticamente.
+- Los cambios de geometría, primaria o foco no reactivan perfiles. Un cambio de
+  monitores durante un menú cierra el borrador y procesa el nuevo setup.
+
+Los perfiles autorandr quedan solo en `$XDG_CONFIG_HOME/wm/displays/` (por defecto
+`~/.config/wm/displays/`), con enlaces de publicación atómica a versiones privadas.
+No editar esos enlaces ni habilitar un segundo servicio autorandr para wm. No se
+leen/importan perfiles ni hooks personales/globales de autorandr o de Plasma.
+La identidad incluye conector y EDID: cambiar de puerto puede definir otro setup;
+sin EDID se usa el conector. Monitores con EDID idénticos pueden ser ambiguos.
+Un lock por DISPLAY impide ediciones/restauraciones simultáneas. El watcher y sus
+menús se cierran con la sesión; un watchdog pendiente termina tras revertir.
+
+Las salidas desenchufadas que X11 aún mantiene configuradas se apagan antes de
+crear snapshots. Si al conectar no queda ninguna pantalla activa, se intenta
+activar una como recuperación, antes de mostrar el asistente.
+
+No se necesita LXQt/KScreen para pantallas. No se cambian políticas de tapa ni
+energía. El asistente rechaza transformaciones/escalado, reflexión y panning
+preexistentes en lugar de borrarlos silenciosamente. Los nombres de modos con
+espacios no son compatibles con el parser de autorandr y se rechazan antes de
+aplicar cambios. No se ha validado hotplug
+con hardware real.
 
 «Bloquear» y Super+L usan exactamente `wm-launcher --action Bloquear`, que solicita
 `xset s activate`: **sin xss-lock/i3lock activos esto no garantiza un bloqueo**.
@@ -177,6 +216,9 @@ argv, incluidos los bindings anteriores y las colisiones. No ejecuta reproductor
 audio, capturas, bloqueo ni herramientas de hardware. Los tests del supervisor
 simulan procesos, bus, reloj, agentes y RandR; los del instalador simulan Git,
 paquetes, privilegios y systemctl, incluidas habilitación y detección de conflictos.
+El gestor de pantallas se prueba con RandR/autorandr/dmenu simulados, geometrías y
+EDID sintéticos, perfiles temporales, locks y watchdogs reales sobre pipes/fork,
+sin conectar con X ni tocar monitores.
 
 Los tests sintéticos no acreditan renderizado visual, emoji compuesto,
 compositor, hardware, monitores/docks, autenticación PAM, bloqueo efectivo ni
@@ -191,7 +233,8 @@ requiere una fase posterior autorizada.
 - [Flameshot: interfaz de captura y opciones](https://flameshot.org/docs/advanced/commandline-options/)
 - [snixembed: alcance y soporte AppIndicator](https://man.archlinux.org/man/snixembed.1.en)
 - [tint2: bandeja, tamaño dinámico y monitor primario](https://man.archlinux.org/man/tint2.1.en)
-- [lxqt-config: configuración de pantallas](https://github.com/lxqt/lxqt-config)
+- [autorandr: perfiles y aplicación de configuraciones](https://github.com/phillipberndt/autorandr)
+- [xrandr: modos, posición y rotación](https://www.x.org/releases/current/doc/man/man1/xrandr.1.xhtml)
 - [xss-lock: bloqueo y suspensión](https://man.archlinux.org/man/xss-lock.1.en)
 - [Dunst: configuración](https://dunst-project.org/documentation/)
 - [Picom: configuración](https://github.com/yshui/picom)

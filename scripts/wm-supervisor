@@ -73,10 +73,6 @@ def outputs(text):
 
 def monitors(previous, tray, children, log):
     state = outputs(command(["xrandr", "--query"]).stdout)
-    if previous is None or state[0] != previous[0]:
-        # Re-read after applying: our own geometry events cannot cause a loop.
-        command(["lxqt-config-monitor", "-l"], required=False)
-        state = outputs(command(["xrandr", "--query"]).stdout)
     if tray is not None and tray.poll() is not None:
         raise RuntimeError("terminó la bandeja")
     if tray is None or previous is None or state[1] != previous[1]:
@@ -162,6 +158,7 @@ def run():
             start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)
             command(["xset", "s", "600", "600"])
             wm = start(children, [str(Path(__file__).resolve().parent / "dwm")], log, required=False)
+            start(children, [str(Path(__file__).resolve().parent / "wm-displays"), "--watch"], log)
             while wm.poll() is None and not interrupted:
                 for process, required in children:
                     if required and process is not tray and process.poll() is not None:

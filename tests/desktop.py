@@ -108,6 +108,9 @@ launcher.choose = confirm
 launcher.execute_action("Apagar", "2")
 assert calls[0][0] == ["systemctl", "poweroff"]
 calls.clear()
+launcher.execute_action("Pantallas", "2")
+assert calls[0][0] == ["wm-displays", "-m", "2"]
+calls.clear()
 os.environ.pop("XDG_SESSION_ID", None)
 launcher.execute_action("Cerrar sesión")
 assert not calls

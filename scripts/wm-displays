@@ -1,0 +1,603 @@
+#!/usr/bin/env python3
+# Coordinate xrandr/autorandr; never run a shell or another desktop's daemon.
+import argparse
+import copy
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import select
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+from contextlib import contextmanager
+
+
+class TopologyChanged(Exception):
+    pass
+
+
+class Busy(Exception):
+    pass
+
+
+def command(argv, env=None):
+    result = subprocess.run(argv, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, timeout=20, umask=0o077)
+    if result.returncode:
+        raise RuntimeError("{}: {}".format(argv[0], result.stderr.strip()))
+    return result.stdout
+
+
+def parse(text):
+    outputs = {}
+    output = mode = None
+    edid = False
+    for line in text.splitlines():
+        header = re.match(r"^(\S+) (connected|disconnected|unknown connection)\b(.*)", line)
+        if header:
+            name, status, rest = header.groups()
+            output = mode = None
+            edid = False
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", name):
+                raise RuntimeError("nombre de salida inválido")
+            if status != "connected":
+                continue
+            geometry = re.search(r" (\d+)x(\d+)(\+-?\d+|-\d+)(\+-?\d+|-\d+)", rest)
+            orientation = re.search(r"\(0x[0-9a-fA-F]+\)(.*?)\(", rest)
+            rotation = re.search(r"\b(normal|left|right|inverted)\b", orientation[1]) if orientation else None
+            output = dict(name=name, edid="", modes={}, enabled=bool(geometry),
+                          mode=None, rate=None, rotation=rotation[1] if rotation else "normal",
+                          primary=bool(re.search(r"\bprimary\b", rest)), x=0, y=0,
+                          relative=None, supported=orientation is None or "axis" not in orientation[1])
+            if geometry:
+                output["x"], output["y"] = int(geometry[3].lstrip("+")), int(geometry[4].lstrip("+"))
+            outputs[name] = output
+            continue
+        if output is None:
+            continue
+        if edid:
+            if re.fullmatch(r"\s+[0-9a-fA-F]{32}", line):
+                output["edid"] += line.strip().lower()
+                continue
+            edid = False
+        if line.strip() == "EDID:":
+            edid = True
+        # Scaling/reflection/panning need different geometry; don't silently drop them.
+        if line.strip().startswith("Panning:") and not line.strip().startswith("Panning: 0x0"):
+            output["supported"] = False
+        if line.strip().startswith("Transform:"):
+            transform = line.split(":", 1)[1].split()
+            output["transform"] = transform
+        elif "transform" in output and len(output["transform"]) < 9:
+            output["transform"].extend(line.split())
+            if len(output["transform"]) >= 9:
+                try:
+                    matrix = list(map(float, output.pop("transform")))
+                    output["supported"] &= matrix == [1, 0, 0, 0, 1, 0, 0, 0, 1]
+                except ValueError:
+                    output["supported"] = False
+        found = re.match(r"^\s+(.+?) \(0x[0-9a-fA-F]+\)\s+[\d.]+MHz\b(.*)", line)
+        if found:
+            name, flags = found.groups()
+            if name.startswith("-") or not name.isprintable() or any(char.isspace() for char in name):
+                raise RuntimeError("modo incompatible con autorandr: " + name)
+            mode = dict(name=name, current="*current" in flags,
+                        preferred="+preferred" in flags, width=0, height=0)
+            continue
+        if mode is not None:
+            horizontal = re.search(r"h: width\s+(\d+)", line)
+            vertical = re.search(r"v: height\s+(\d+).*clock\s+([\d.]+)Hz", line)
+            if horizontal:
+                mode["width"] = int(horizontal[1])
+            if vertical:
+                mode["height"] = int(vertical[1])
+                rate = vertical[2]
+                if mode["width"] <= 0 or mode["height"] <= 0 or float(rate) <= 0:
+                    raise RuntimeError("modo de pantalla inválido")
+                entry = output["modes"].setdefault(mode["name"], dict(
+                    size=(mode["width"], mode["height"]), rates=[], preferred=False))
+                if entry["size"] != (mode["width"], mode["height"]):
+                    raise RuntimeError("modo ambiguo: " + mode["name"])
+                if rate not in entry["rates"]:
+                    entry["rates"].append(rate)
+                entry["preferred"] |= mode["preferred"]
+                if mode["current"]:
+                    output["mode"], output["rate"] = mode["name"], rate
+                mode = None
+    if not outputs:
+        raise RuntimeError("xrandr no detecta ninguna pantalla conectada")
+    for output in outputs.values():
+        if not output["modes"] or (output["enabled"] and output["mode"] is None):
+            raise RuntimeError("no se pudieron leer modos de " + output["name"])
+        if output["mode"] is None:
+            output["mode"] = next((name for name, value in output["modes"].items()
+                                   if value["preferred"]), next(iter(output["modes"])))
+            output["rate"] = output["modes"][output["mode"]]["rates"][0]
+    return outputs
+
+
+def state():
+    env = dict(os.environ, LC_ALL="C")
+    return parse(command(["xrandr", "--verbose"], env))
+
+
+def identity(outputs):
+    devices = sorted((name, output["edid"]) for name, output in outputs.items())
+    return hashlib.sha256(json.dumps(devices).encode()).hexdigest()
+
+
+def layout(draft):
+    result = copy.deepcopy(draft)
+    visiting, done = set(), set()
+
+    def place(name):
+        output = result[name]
+        if name in done or not output["enabled"]:
+            return
+        if name in visiting:
+            raise RuntimeError("las posiciones relativas forman un ciclo")
+        visiting.add(name)
+        relation = output["relative"]
+        if relation:
+            reference, direction, alignment = relation
+            if reference not in result or not result[reference]["enabled"]:
+                raise RuntimeError("la pantalla de referencia está desactivada")
+            place(reference)
+            other = result[reference]
+            if direction == "same":
+                if other["mode"] not in output["modes"]:
+                    raise RuntimeError("duplicar requiere una resolución común")
+                output["mode"], output["rotation"] = other["mode"], other["rotation"]
+                rates = output["modes"][output["mode"]]["rates"]
+                output["rate"] = other["rate"] if other["rate"] in rates else rates[0]
+        if output["mode"] not in output["modes"] or output["rotation"] not in (
+                "normal", "left", "right", "inverted"):
+            raise RuntimeError("modo o rotación inválidos")
+        if output["rate"] not in output["modes"][output["mode"]]["rates"]:
+            raise RuntimeError("frecuencia no disponible")
+        width, height = output["modes"][output["mode"]]["size"]
+        if output["rotation"] in ("left", "right"):
+            width, height = height, width
+        output["size"] = width, height
+        if relation:
+            ow, oh = other["size"]
+            x, y = other["x"], other["y"]
+            if direction in ("left", "right"):
+                x += -width if direction == "left" else ow
+                y += (oh - height) * alignment // 2
+            elif direction in ("above", "below"):
+                y += -height if direction == "above" else oh
+                x += (ow - width) * alignment // 2
+            elif direction != "same":
+                raise RuntimeError("posición inválida")
+            output["x"], output["y"] = x, y
+        visiting.remove(name)
+        done.add(name)
+
+    active = [name for name, output in result.items() if output["enabled"]]
+    if not active:
+        raise RuntimeError("debe quedar al menos una pantalla activa")
+    for name in active:
+        place(name)
+    left = min(result[name]["x"] for name in active)
+    top = min(result[name]["y"] for name in active)
+    primary = next((name for name in active if result[name]["primary"]), active[0])
+    for name in active:
+        result[name]["x"] -= left
+        result[name]["y"] -= top
+        result[name]["primary"] = name == primary
+    return result
+
+
+def arguments(draft):
+    argv = ["xrandr"]
+    for name, output in sorted(layout(draft).items()):
+        argv += ["--output", name]
+        if not output["enabled"]:
+            argv += ["--off"]
+            continue
+        argv += ["--mode", output["mode"], "--rate", output["rate"],
+                 "--rotate", output["rotation"], "--pos", "{}x{}".format(output["x"], output["y"])]
+        if output["primary"]:
+            argv += ["--primary"]
+    return argv
+
+
+def private(path):
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise RuntimeError("directorio privado inseguro: " + str(path))
+    return path
+
+
+def autorandr(base, *args):
+    home = private(base / "home")
+    config = private(base / "config")
+    empty = private(base / "empty")
+    env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(config),
+               XDG_CONFIG_DIRS=str(empty), LC_ALL="C",
+               XAUTHORITY=os.environ.get("XAUTHORITY", str(Path.home() / ".Xauthority")))
+    return command(["autorandr", "--ignore-lid", *args], env)
+
+
+def profile(base, key):
+    directory = private(private(base / "config") / "autorandr")
+    alias = directory / ("saved-" + key)
+    if not alias.is_symlink():
+        if alias.exists():
+            raise RuntimeError("perfil inesperado: " + str(alias))
+        return None
+    target = os.readlink(alias)
+    if not re.fullmatch(r"version-[0-9a-f]{32}", target):
+        raise RuntimeError("enlace de perfil inválido")
+    version = directory / target
+    if not version.is_dir() or version.is_symlink():
+        raise RuntimeError("versión de perfil inválida")
+    private(version)
+    if any((version / name).is_symlink() or not (version / name).is_file()
+           for name in ("config", "setup")):
+        raise RuntimeError("perfil incompleto")
+    return alias.name
+
+
+def save(base, key):
+    if identity(state()) != key:
+        raise TopologyChanged("pantallas cambiadas antes de guardar")
+    old = profile(base, key)
+    directory = base / "config" / "autorandr"
+    previous = os.readlink(directory / old) if old else None
+    version = "version-" + uuid.uuid4().hex
+    alias = directory / ("saved-" + key)
+    temporary = directory / ("link-" + uuid.uuid4().hex)
+    try:
+        autorandr(base, "--save", version)
+        if identity(state()) != key:
+            raise TopologyChanged("pantallas cambiadas al guardar")
+        if any(not (directory / version / name).is_file() for name in ("config", "setup")):
+            raise RuntimeError("autorandr no guardó el perfil completo")
+        temporary.symlink_to(version)
+        os.replace(temporary, alias)
+    except BaseException:
+        if not alias.is_symlink() or os.readlink(alias) != version:
+            shutil.rmtree(directory / version, ignore_errors=True)
+        raise
+    finally:
+        temporary.unlink(missing_ok=True)
+    if previous:
+        shutil.rmtree(directory / previous, ignore_errors=True)
+
+
+@contextmanager
+def locked(base, kind):
+    display = hashlib.sha256(os.environ.get("DISPLAY", "").encode()).hexdigest()[:16]
+    path = base / (kind + "-" + display + ".lock")
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise RuntimeError("lock privado inseguro")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Busy("ya hay un gestor de pantallas activo")
+        yield
+    finally:
+        os.close(fd)
+
+
+def visible(outputs):
+    if not any(output["enabled"] for output in outputs.values()):
+        name = sorted(outputs)[0]
+        command(["xrandr", "--output", name, "--auto", "--primary"])
+
+
+def settle():
+    text = command(["xrandr", "--verbose"], dict(os.environ, LC_ALL="C"))
+    current = parse(text)
+    argv = ["xrandr"]
+    for line in text.splitlines():
+        stale = re.match(r"^([A-Za-z0-9][A-Za-z0-9_.:-]*) disconnected.* \d+x\d+[+-]", line)
+        if stale:
+            argv += ["--output", stale[1], "--off"]
+    if len(argv) > 1:
+        command(argv)
+    visible(current)
+    return state()
+
+
+def restore(backup, expected):
+    try:
+        if identity(state()) == expected:
+            autorandr(backup, "--load", "rollback", "--force")
+    finally:
+        settle()
+
+
+def guard(fd, backup, expected, apply_timeout=45, confirm_timeout=15):
+    keep = False
+    deadline = time.monotonic() + apply_timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            ready, _, _ = select.select([fd], [], [], remaining)
+            if not ready or time.monotonic() >= deadline:
+                break
+            message = os.read(fd, 1)
+            if message == b"A":
+                deadline = time.monotonic() + confirm_timeout
+            elif message == b"K":
+                keep = True
+                break
+            else:
+                break
+        if not keep:
+            restore(backup, expected)
+        return 0 if keep else 1
+    finally:
+        os.close(fd)
+        shutil.rmtree(backup, ignore_errors=True)
+
+
+def choose(options, prompt, expected=None, monitor=None, timeout=None):
+    rows = {"{} · {}".format(str(label).replace("\n", " "), index): value
+            for index, (label, value) in enumerate(options)}
+    argv = ["dmenu", "-c", "-i", "-l", "18", "-p", prompt,
+            "-fn", "Hack Nerd Font Mono:size=11"]
+    if monitor is not None:
+        argv += ["-m", monitor]
+    process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + timeout if timeout is not None else None
+    data = "\n".join(rows) + "\n"
+    try:
+        while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                return None
+            if expected is not None and identity(state()) != expected:
+                raise TopologyChanged("ha cambiado la combinación de pantallas")
+            try:
+                stdout, _ = process.communicate(data, timeout=0.25)
+                return rows.get(stdout.removesuffix("\n")) if process.returncode == 0 else None
+            except subprocess.TimeoutExpired:
+                data = None
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+
+
+def transaction(base, initial, apply, confirm, monitor=None):
+    expected = identity(initial)
+    backup = Path(tempfile.mkdtemp(prefix="rollback-", dir=base))
+    try:
+        autorandr(backup, "--save", "rollback")
+        if identity(state()) != expected:
+            raise TopologyChanged("pantallas cambiadas antes de aplicar")
+    except BaseException:
+        shutil.rmtree(backup)
+        raise
+    read, write = os.pipe()
+    try:
+        ready_read, ready_write = os.pipe()
+    except BaseException:
+        os.close(read)
+        os.close(write)
+        shutil.rmtree(backup)
+        raise
+    try:
+        pid = os.fork()
+    except BaseException:
+        for fd in (read, write, ready_read, ready_write):
+            os.close(fd)
+        shutil.rmtree(backup)
+        raise
+    if pid == 0:
+        os.close(write)
+        os.close(ready_read)
+        try:
+            os.setsid()
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                signal.signal(sig, signal.SIG_DFL)
+            os.write(ready_write, b"R")
+            os.close(ready_write)
+            code = guard(read, backup, expected)
+        except BaseException as error:
+            print("wm-displays: falló el watchdog/reversión: {}".format(error), file=sys.stderr, flush=True)
+            shutil.rmtree(backup, ignore_errors=True)
+            code = 2
+        os._exit(code)
+    os.close(read)
+    os.close(ready_write)
+    kept = False
+    try:
+        ready, _, _ = select.select([ready_read], [], [], 5)
+        if not ready or os.read(ready_read, 1) != b"R":
+            raise RuntimeError("el watchdog no está listo; no se aplicó el cambio")
+        apply()
+        current = state()
+        if identity(current) != expected:
+            raise TopologyChanged("pantallas cambiadas al aplicar")
+        if not any(output["enabled"] for output in current.values()):
+            raise RuntimeError("el cambio no dejó una pantalla activa")
+        os.write(write, b"A")
+        kept = not confirm or choose([("Revertir", False), ("Conservar y guardar", True)],
+                                    "¿Conservar? Reversión en 15 s", expected, monitor, 15) is True
+        if kept:
+            os.write(write, b"K")
+    finally:
+        os.close(ready_read)
+        os.close(write)
+        _, status = os.waitpid(pid, 0)
+    if os.waitstatus_to_exitcode(status) == 2:
+        raise RuntimeError("falló la reversión; revisa las pantallas")
+    return kept and os.waitstatus_to_exitcode(status) == 0
+
+
+def edit_output(draft, name, expected, monitor):
+    output = draft[name]
+    action = choose([(label, value) for label, value in (
+        ("Activar/desactivar", "toggle"), ("Resolución", "mode"),
+        ("Frecuencia", "rate"), ("Rotación", "rotation"), ("Posición", "position"),
+        ("Pantalla principal", "primary"), ("Volver", None))], name, expected, monitor)
+    if action in ("mode", "rotation") and output["relative"] and output["relative"][1] == "same":
+        raise RuntimeError("en duplicación, cambia resolución/rotación en la pantalla de referencia")
+    if action == "toggle":
+        output["enabled"] = not output["enabled"]
+    elif action == "mode":
+        mode = choose([(value, value) for value in output["modes"]], "Resolución", expected, monitor)
+        if mode is not None:
+            output["mode"] = mode
+            output["rate"] = output["modes"][mode]["rates"][0]
+    elif action == "rate":
+        rate = choose([(value + " Hz", value) for value in output["modes"][output["mode"]]["rates"]],
+                      "Frecuencia", expected, monitor)
+        if rate is not None:
+            output["rate"] = rate
+    elif action == "rotation":
+        rotation = choose([("Normal", "normal"), ("Izquierda", "left"),
+                           ("Derecha", "right"), ("Invertida", "inverted")], "Rotación", expected, monitor)
+        if rotation is not None:
+            output["rotation"] = rotation
+    elif action == "primary":
+        if not output["enabled"]:
+            raise RuntimeError("activa primero esa pantalla")
+        for other in draft.values():
+            other["primary"] = other is output
+    elif action == "position":
+        reference = choose([(other, other) for other, value in draft.items()
+                            if other != name and value["enabled"]], "Respecto a", expected, monitor)
+        if reference is None:
+            return
+        direction = choose([("Izquierda", "left"), ("Derecha", "right"),
+                            ("Arriba", "above"), ("Abajo", "below"), ("Duplicar", "same")],
+                           "Posición", expected, monitor)
+        if direction is None:
+            return
+        alignment = 0
+        if direction != "same":
+            labels = ("Arriba", "Centro", "Abajo") if direction in ("left", "right") else (
+                "Izquierda", "Centro", "Derecha")
+            alignment = choose([(label, index) for index, label in enumerate(labels)],
+                               "Alineación", expected, monitor)
+            if alignment is None:
+                return
+        output["relative"] = reference, direction, alignment
+
+
+def configure(base, initial, monitor=None):
+    if any(not output["supported"] for output in initial.values()):
+        raise RuntimeError("no se admite editar escalado, reflexión o panning existentes")
+    expected = identity(initial)
+    draft = copy.deepcopy(initial)
+    while True:
+        options = [("{}: {}{}".format(name, value["mode"] if value["enabled"] else "apagada",
+                                    " (principal)" if value["primary"] and value["enabled"] else ""), ("edit", name))
+                   for name, value in draft.items()]
+        action = choose(options + [("Aplicar y guardar", "apply"), ("Cancelar", None)],
+                        "Pantallas", expected, monitor)
+        if action is None:
+            return
+        try:
+            if action == "apply":
+                argv = arguments(draft)
+                command(argv[:1] + ["--dryrun"] + argv[1:])
+                if transaction(base, initial, lambda: command(argv), True, monitor):
+                    try:
+                        save(base, expected)
+                    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                        raise RuntimeError("disposición conservada pero NO guardada: {}".format(error))
+                return
+            candidate = copy.deepcopy(draft)
+            edit_output(candidate, action[1], expected, monitor)
+            draft = layout(candidate)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            print("wm-displays: {}".format(error), file=sys.stderr)
+            choose([("Volver", None)], str(error), expected, monitor, 15)
+
+
+def report(error, monitor=None):
+    print("wm-displays: {}".format(error), file=sys.stderr)
+    try:
+        choose([("Cerrar", None)], str(error), monitor=monitor, timeout=15)
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        pass
+
+
+def watch(base, monitor=None):
+    seen = pending = None
+    while True:
+        try:
+            current = state()
+            key = identity(current)
+            if key != seen and key == pending:
+                with locked(base, "edit"):
+                    current = state()
+                    if identity(current) == key:
+                        current = settle()
+                        if identity(current) != key:
+                            raise TopologyChanged("pantallas cambiadas al estabilizar salidas")
+                        saved = profile(base, key)
+                        if saved:
+                            transaction(base, current,
+                                        lambda: autorandr(base, "--load", saved, "--force"), False)
+                        else:
+                            configure(base, current, monitor)
+                        seen = key
+            pending = key
+        except Busy:
+            pass
+        except TopologyChanged:
+            pending = None
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            if pending is not None and pending != seen:
+                report(error, monitor)
+            else:
+                print("wm-displays: {}".format(error), file=sys.stderr)
+            seen = pending
+        time.sleep(2)
+
+
+def run():
+    parser = argparse.ArgumentParser(description="Perfiles de pantallas X11 mediante dmenu")
+    parser.add_argument("--watch", action="store_true")
+    parser.add_argument("-m", dest="monitor")
+    options = parser.parse_args()
+    if not os.environ.get("DISPLAY") or os.environ.get("XDG_SESSION_TYPE", "x11") != "x11":
+        raise RuntimeError("se necesita una sesión X11")
+    base = private(Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wm/displays")
+    if options.watch:
+        with locked(base, "watch"):
+            watch(base, options.monitor)
+    else:
+        with locked(base, "edit"):
+            configure(base, settle(), options.monitor)
+
+
+if __name__ == "__main__":
+    def interrupt(signum, frame):
+        raise KeyboardInterrupt
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, interrupt)
+    try:
+        run()
+    except (Busy, TopologyChanged, OSError, RuntimeError, subprocess.SubprocessError) as error:
+        report(error)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.exit(130)
