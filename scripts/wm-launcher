@@ -97,6 +97,7 @@ def run():
             launched = False
         if not launched:
             report(obj.get_display_name(), "No se pudo iniciar la aplicación; consulta el registro de sesión")
+            sys.exit(1)
     else:
         execute_action(obj, options.monitor)
 
