@@ -39,9 +39,10 @@ for key, direction in (("Left", -1), ("Right", 1)):
     binding(superkey | shift, "XK_" + key, "tagmon", direction)
 binding(alt, "XK_Tab", "focusstack", 1)
 binding(alt | shift, "XK_Tab", "focusstack", -1)
+binding(superkey, "XK_q", "killclient", 0)
 binding(control, "XK_q", "killclient", 0)
 binding(alt, "XK_F4", "killclient", 0)
-assert len(expected) == 20
+assert len(expected) == 21
 
 volume = ("wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SINK@")
 commands = {
@@ -132,5 +133,5 @@ for line in result.stdout.splitlines():
 assert actual == expected, {key: (expected.get(key), actual.get(key))
                             for key in expected.keys() | actual.keys()
                             if expected.get(key) != actual.get(key)}
-assert len(actual) == 38
+assert len(actual) == 39
 print("PASS: compiled session bindings, argv, Plasma extras, collisions and existing shortcuts")

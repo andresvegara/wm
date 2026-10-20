@@ -39,6 +39,8 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | launcherdocs | Manual update for the apps/actions-only launcher. |
 | thunar | Personal Super+E binding to jumpapp -f thunar. |
 | thunardocs | Manual update for Thunar and background-process handling. |
+| superclose | Personal Super+Q alias for the existing graceful close action. |
+| superclosedocs | Document Super+Q alongside Ctrl+Q and Alt+F4. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
