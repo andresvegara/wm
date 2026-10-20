@@ -56,6 +56,7 @@ command	systemctl	systemd	/usr/bin/systemctl
 command	loginctl	systemd	/usr/bin/loginctl
 command	gdbus	glib2	/usr/bin/gdbus
 command	dunst	dunst	/usr/bin/dunst
+command	notify-send	libnotify	/usr/bin/notify-send
 command	picom	picom	/usr/bin/picom
 command	nm-applet	network-manager-applet	/usr/bin/nm-applet
 command	nm-connection-editor	nm-connection-editor	/usr/bin/nm-connection-editor

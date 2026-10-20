@@ -703,6 +703,46 @@ testinitialcenter(void)
 	free(client);
 }
 
+static void
+testspawn(void)
+{
+	const char *command[] = { "synthetic", "with spaces", "$(never-run);secret=value", NULL };
+	Arg arg = { .v = command };
+	const char *bin = getenv("WM_SPAWN_BIN"), *log = getenv("WM_SPAWN_LOG");
+	char active[1024], disabled[1024], buffer[1024];
+	char *path;
+	FILE *file;
+	int status;
+	size_t length;
+
+	assert(bin && log);
+	path = strdup(getenv("PATH"));
+	assert(path && setenv("PATH", bin, 1) == 0);
+	reset();
+	spawn(&arg);
+	assert(waitpid(-1, &status, 0) > 0 && WIFEXITED(status) && !WEXITSTATUS(status));
+	file = fopen(log, "r");
+	assert(file);
+	length = fread(buffer, 1, sizeof buffer - 1, file);
+	buffer[length] = '\0';
+	fclose(file);
+	assert(!strcmp(buffer, "--\nsynthetic\nwith spaces\n$(never-run);secret=value\n"));
+	snprintf(active, sizeof active, "%s/wm-run", bin);
+	snprintf(disabled, sizeof disabled, "%s/disabled", bin);
+	assert(rename(active, disabled) == 0);
+	spawn(&arg);
+	assert(waitpid(-1, &status, 0) > 0 && WIFEXITED(status) && !WEXITSTATUS(status));
+	file = fopen(log, "r");
+	assert(file);
+	length = fread(buffer, 1, sizeof buffer - 1, file);
+	buffer[length] = '\0';
+	fclose(file);
+	assert(strstr(buffer, "-center\n-timeout\n15\nwm:"));
+	assert(rename(disabled, active) == 0);
+	assert(setenv("PATH", path, 1) == 0);
+	free(path);
+}
+
 int
 main(void)
 {
@@ -717,6 +757,7 @@ main(void)
 	testmonitors();
 	testdock();
 	testinitialcenter();
+	testspawn();
 	puts("PASS: dwm configuration, placement, initial centering, focus, close and monitor tests");
 	return 0;
 }

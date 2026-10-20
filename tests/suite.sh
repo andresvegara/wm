@@ -96,7 +96,12 @@ cc -std=c99 -pedantic -Wall -Wno-deprecated-declarations \
     -I"$tmp/dwm" $(pkg-config --cflags x11 xft xinerama) \
     "$root/tests/dwm-core.c" "$tmp/dwm/drw.o" "$tmp/dwm/util.o" \
     -o "$tmp/dwm-core-test" $(pkg-config --libs x11 xft xinerama) -lfontconfig
-"$tmp/dwm-core-test"
+mkdir "$tmp/spawn-bin"
+for tool in wm-run xmessage; do
+	printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$WM_SPAWN_LOG"\n' > "$tmp/spawn-bin/$tool"
+	chmod 755 "$tmp/spawn-bin/$tool"
+done
+WM_SPAWN_BIN="$tmp/spawn-bin" WM_SPAWN_LOG="$tmp/spawn.log" "$tmp/dwm-core-test"
 cc -std=c99 -pedantic -Wall \
     -fsanitize=undefined -fno-sanitize-recover=all \
     -D_XOPEN_SOURCE=600 -DVERSION=\"0.9.3\" \
@@ -116,6 +121,7 @@ cc -std=c99 -pedantic -Wall -D_DEFAULT_SOURCE -DVERSION=\"5.4\" -DXINERAMA \
 sh "$root/tests/export-patches.sh" "$root" "$tmp"
 sh "$root/tests/install.sh" "$root" "$tmp"
 python3 "$root/tests/desktop.py" "$root" "$tmp"
+python3 "$root/tests/commands.py" "$root" "$tmp"
 python3 "$root/tests/session.py" "$root" "$tmp"
 python3 "$root/tests/displays.py" "$root" "$tmp"
 python3 "$root/tests/session-shortcuts.py" "$root" "$tmp"

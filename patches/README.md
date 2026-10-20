@@ -45,6 +45,9 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | centerfloatingdocs | Document initial placement and assigned-monitor behavior. |
 | pointerfocus | Restore pointer focus across clients/monitors without focusing docks. |
 | pointerfocusdocs | Document pointer focus and existing-window behavior. |
+| launcherrors | Route spawned commands through wm-run, with missing-helper fallback. |
+| launchprofile | Personal jumpapp -n bindings for observable startup. |
+| launchdocs | Document visible startup failures and limits. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -73,6 +76,11 @@ on the earlier focus/fullscreen changes; it is not an XEmbed implementation.
 Sessionkeys follows the profile/launcherbinding and depends at runtime on
 playerctl, wpctl, brightnessctl, Flameshot and wm-launcher (see docs/session.md).
 Sessiondocs follows sessionkeys and changes only documentation.
+Launcherrors depends at runtime on the coordinator's wm-run helper. It preserves
+spawn argv/setsid and falls back to xmessage if that helper cannot execute.
+Launchprofile follows it and uses jumpapp -n, retaining focus/cycle for existing
+windows. Launchdocs follows both; these are separate code/config/documentation
+patches. Tests call real spawn with only synthetic executables on a closed PATH.
 Pointerfocus supersedes the historical clickfocus behavior without rewriting
 that patch. It restores upstream-style EnterNotify focus, uses crossing coordinates
 on the root, and switches monitors on root MotionNotify immediately (no static

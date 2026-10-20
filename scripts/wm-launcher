@@ -33,6 +33,14 @@ def choose(items, prompt, monitor=None):
     return selected if selected in items else None
 
 
+def report(name, message):
+    print("wm-launcher: {}: {}".format(name, message), file=sys.stderr)
+    try:
+        subprocess.run(["wm-run", "--error", name, message], timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def actions():
     return {
         "Pantallas": (["wm-displays"], False),
@@ -53,11 +61,11 @@ def execute_action(name, monitor=None):
     if name == "Pantallas" and monitor is not None:
         command += ["-m", monitor]
     if name == "Cerrar sesión" and not command[-1]:
-        print("wm-launcher: falta XDG_SESSION_ID; no se cerró ninguna sesión", file=sys.stderr)
+        report(name, "Falta XDG_SESSION_ID; no se cerró ninguna sesión")
         return
     if confirm and choose(["Cancelar", "Confirmar"], name, monitor) != "Confirmar":
         return
-    subprocess.Popen(command, start_new_session=True)
+    subprocess.Popen(["wm-run", "--", *command], start_new_session=True)
 
 
 def run():
@@ -83,9 +91,12 @@ def run():
         # GIO interprets Desktop Entry quoting/field codes/Terminal/activation.
         from gi.repository import GLib
         try:
-            obj.launch([], None)
+            launched = obj.launch([], None)
         except GLib.Error as error:
-            sys.exit("wm-launcher: {}".format(error))
+            print("wm-launcher: {}".format(error), file=sys.stderr)
+            launched = False
+        if not launched:
+            report(obj.get_display_name(), "No se pudo iniciar la aplicación; consulta el registro de sesión")
     else:
         execute_action(obj, options.monitor)
 
@@ -94,5 +105,6 @@ if __name__ == "__main__":
     try:
         run()
     except (OSError, ValueError, KeyError, ImportError) as error:
+        report("lanzador", "No se pudo completar la acción; consulta el registro de sesión")
         print("wm-launcher: {}".format(error), file=sys.stderr)
         sys.exit(1)

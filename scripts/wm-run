@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+# Keep application streams attached to the session log, never capture credentials/argv.
+import argparse
+import html
+import os
+import subprocess
+import sys
+
+
+def report(application, message):
+    application = "".join(char if char.isprintable() else " " for char in application)[:128]
+    message = "".join(char if char.isprintable() else " " for char in message)[:512]
+    title = "No se pudo iniciar " + application
+    print("wm-run: {}: {}".format(application, message), file=sys.stderr)
+    try:
+        result = subprocess.run(["notify-send", "--app-name=wm", "--urgency=critical",
+                                 "--icon=dialog-error", "--hint=string:x-dunst-stack-tag:wm-error",
+                                 html.escape(title), html.escape(message)], timeout=3)
+        if result.returncode == 0:
+            return
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        subprocess.run(["xmessage", "-center", "-timeout", "15", title + "\n" + message], timeout=17)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def launch(argv):
+    name = os.path.basename(argv[0])
+    try:
+        process = subprocess.Popen(argv)
+    except OSError as error:
+        report(name, "No se pudo ejecutar: {}".format(error.strerror or "error del sistema"))
+        return 1
+    try:
+        # shortcut: only monitor startup (1.5 s); later failures need application-specific health checks.
+        code = process.wait(timeout=1.5)
+    except subprocess.TimeoutExpired:
+        return 0
+    if code:
+        report(name, "Terminó con código {}. Consulta el registro de sesión.".format(code))
+    return code if code > 0 else 1 if code < 0 else 0
+
+
+def run():
+    parser = argparse.ArgumentParser(description="Lanzar con avisos de fallo temprano")
+    parser.add_argument("--error", nargs=2, metavar=("APP", "MENSAJE"))
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    options = parser.parse_args()
+    if options.error:
+        report(*options.error)
+        return 0
+    argv = options.command
+    if argv[:1] == ["--"]:
+        argv = argv[1:]
+    if not argv:
+        parser.error("falta el comando")
+    return launch(argv)
+
+
+if __name__ == "__main__":
+    sys.exit(run())

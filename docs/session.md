@@ -88,11 +88,20 @@ Alacritty es la terminal preferida de la sesión, también para aplicaciones
 `.desktop` con `Terminal=true` mediante xdg-terminal-exec. st se conserva
 instalado como alternativa; no se modifica la configuración personal de Alacritty.
 
-Super+E usa `jumpapp -f thunar`: también puede abrir una ventana si Thunar ya
+Super+E usa `jumpapp -n -f thunar`: también puede abrir una ventana si Thunar ya
 está en segundo plano sin ventanas normales. El instalador requiere `thunar`,
 no Dolphin; no desinstala Dolphin ni cambia asociaciones de carpetas o ajustes
 de Plasma. GVfs y sus backends son opcionales para papelera/montaje/red y no se
 añaden automáticamente en este cambio.
+
+Los comandos de atajos pasan por `wm-run`, que avisa mediante Dunst cuando no
+puede ejecutar el programa o este termina con error durante los primeros 1,5 s.
+Si falla la notificación intenta `xmessage` durante 15 s; los errores también
+quedan en el registro de sesión. No se muestran argumentos ni stderr arbitrario
+en el aviso. Jumpapp usa `-n` para observar el arranque sin cambiar foco/ciclo.
+Las acciones del lanzador usan el mismo helper; los fallos GIO también se avisan.
+No se promete detectar fallos posteriores, activaciones DBus asíncronas ni apps
+que devuelven éxito sin abrir ventana. Las aplicaciones lentas no se cancelan.
 
 ## Dependencias y entrega al instalador
 
