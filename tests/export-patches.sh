@@ -9,7 +9,10 @@ mkdir -p "$fixture/scripts"
 cp "$root/scripts/export-patches.sh" "$fixture/scripts/"
 git clone -q --no-hardlinks --template= -- "$root/st" "$fixture/st"
 revision=$(git -C "$fixture/st" rev-parse HEAD)
-printf 'st\tfixture\t%s\n' "$revision" > "$fixture/sources.tsv"
+tree=$(git -C "$fixture/st" rev-parse 'HEAD^{tree}')
+upstream=0123456789abcdef0123456789abcdef01234567
+printf 'st\tfixture\t%s\t%s\t%s\n' "$upstream" "$revision" "$tree" \
+    > "$fixture/sources.tsv"
 
 fail()
 {
@@ -32,6 +35,11 @@ fi
 
 printf '\n/* fixture-first */\n' >> "$fixture/st/config.def.h"
 exportfeature first
+IFS= read -r firstpatch < "$fixture/patches/st/series"
+case "$firstpatch" in
+st-first-*-0123456.diff) ;;
+*) fail 'filename does not identify source provenance' ;;
+esac
 printf '\n/* fixture-second */\n' >> "$fixture/st/config.def.h"
 exportfeature second
 [ "$(wc -l < "$fixture/patches/st/series")" -eq 2 ] ||

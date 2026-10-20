@@ -18,8 +18,12 @@ esac
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 tab=$(printf '\t')
 revision=
-while IFS="$tab" read -r name url base; do
-	[ "$name" != "$project" ] || revision=$base
+upstream=
+while IFS="$tab" read -r name url source base tree; do
+	if [ "$name" = "$project" ]; then
+		upstream=$source
+		revision=$base
+	fi
 done < "$root/sources.tsv"
 [ -n "$revision" ] || { printf '%s\n' 'export: missing base' >&2; exit 1; }
 git -C "$root/$project" merge-base --is-ancestor "$revision" HEAD || {
@@ -31,7 +35,7 @@ git -C "$root/$project" merge-base --is-ancestor "$revision" HEAD || {
 	exit 1
 }
 
-short=$(printf '%.7s' "$revision")
+short=$(printf '%.7s' "$upstream")
 name="$project-$feature-$(date -u +%Y%m%d)-$short.diff"
 dir="$root/patches/$project"
 [ ! -e "$dir/$name" ] || {

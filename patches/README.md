@@ -4,9 +4,14 @@ One functionality per patch. Personal configuration and documentation are
 separate from reusable code changes. Do not export a whole working tree as a
 single cumulative customization patch.
 
-`sources.tsv` records the official base revisions. Each project's `series`
-records application order. Apply the complete series to that base without
-commits, using patch -p1 or git apply, never git am.
+`sources.tsv` records five TSV fields: project, official source URL, official
+source revision, local import root commit and original tree hash. Each source
+repository has its own fresh history; the local import has identical source
+files and licenses but no parent or inherited official commit objects.
+
+Each project's `series` records application order. Apply it to the local import
+(or identical official source snapshot), using patch -p1 or git apply, never
+git am. Official revision identifiers describe provenance, not Git ancestry.
 
 ## dwm series
 
@@ -34,9 +39,10 @@ Profile binds the functions introduced earlier. Documentation describes that
 profile. Use the recorded prefix for each patch: minimal alternative patch
 combinations are not validated.
 
-The hash in the filename identifies the initial official base, not an invented
-commit for each intermediate state. No intermediate commits were created.
-`make test` checks patch -p1 and git apply, rebuilds after every patch, compares
+The hash in the filename identifies the official source snapshot. The local
+import root and feature commits have their own hashes, recorded separately;
+they do not inherit the official history. `make test` checks patch -p1 and
+git apply, rebuilds after every patch, compares
 the final sources with dwm/, and runs the behavior tests with simulated Xlib.
 
 The activation behavior matches the community
@@ -92,7 +98,8 @@ make patch PROJECT=dwm FEATURE=feature-name
 make test
 ```
 
-The exporter reconstructs the existing series in a temporary Git index and
+The exporter starts from the local import root, retaining the official source
+hash in filenames. It reconstructs the existing series in a temporary Git index and
 exports only the remaining working-tree changes as the next patch. It does not
 rewrite the previous patches, change the checkout's index or create commits.
 The working-tree change must already be scoped to one feature: an exporter
