@@ -1,5 +1,8 @@
 all:
-	@printf '%s\n' 'Use make test; installation and activation are not enabled.'
+	@printf '%s\n' 'Use make test to validate; make install installs without activating a session.'
+
+install:
+	@sh scripts/install.sh
 
 test:
 	@sh tests/run.sh
@@ -9,4 +12,4 @@ patch:
 
 patches: patch
 
-.PHONY: all test patch patches
+.PHONY: all install test patch patches

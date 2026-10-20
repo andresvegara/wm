@@ -24,7 +24,7 @@ retirar sus atajos, no una compilación libre de warnings.
   commit raíz local de importación y árbol original (cinco campos TSV).
 - `checkouts.tsv`: destinos personales y HEAD locales del checkpoint.
 - `patches/`: diffs exportados y orden de aplicación por proyecto.
-- `scripts/`: herramientas del proyecto; no hay instalador ni activación.
+- `scripts/`: exportador e instalador; `session/`: entorno local a dwm.
 - `tests/`: validación aislada, sin conectarse a X11, Wayland o D-Bus.
 
 El directorio físico sigue siendo `/home/kafka/dwm`; su repositorio raíz es
@@ -49,7 +49,9 @@ Verifica que cada importación es la única raíz de su historial y conserva el
 más los parches, compila cada prefijo de serie y comprueba que el resultado
 coincide con los checkouts. También prueba el exportador con cambios sintéticos.
 Los tres proyectos se compilan en temporales. Los tests usan HOME temporal y
-sin variables de sesión. La compilación no instala ni ejecuta los programas.
+sin variables de sesión. El instalador se prueba con dependencias simuladas y
+staging temporal; también empaqueta dos veces fuentes reales y comprueba su
+idempotencia y terminfo. No instala en el sistema ni ejecuta programas gráficos.
 
 Exportar una sola funcionalidad sobre la serie actual, sin crear commits:
 
@@ -64,6 +66,54 @@ Las dependencias y el flujo están en [patches/README.md](patches/README.md).
 Los nuevos archivos de un checkout deben incorporarse deliberadamente al
 seguimiento de ese repositorio antes de exportarlos; el exportador rechaza
 archivos untracked para no omitirlos silenciosamente.
+
+## Instalador preparado
+
+Desde la raíz, como usuario normal (sin anteponer sudo):
+
+```sh
+make install
+# Si todavía falta make:
+sh scripts/install.sh
+```
+
+**No se ha ejecutado la instalación real en esta fase.** El instalador prepara
+solo lo existente: dwm, dmenu y st; no completa los servicios pendientes ni
+registra o activa una sesión en el gestor de acceso.
+
+- Instala binarios en `/usr/local/bin`, manuales en `/usr/local/share/man/man1`
+  y terminfo en `/usr/local/share/terminfo`. Solo las copias finales usan sudo.
+- Comprueba herramientas, bibliotecas, fuentes y programas de los atajos actuales
+  (incluidos Brave, Chromium, Dolphin, Spotify y CopyQ). El inventario exacto
+  está en `scripts/dependencies.tsv`.
+- Solo con `ID=arch` instala dependencias ausentes mediante `paru -S --needed`,
+  con sus confirmaciones normales. Puede incluir paquetes AUR: revisarlos antes
+  de aceptarlos. No instala paru ni utiliza otro gestor. Fuera de Arch falla
+  mostrando las rutas ausentes, no nombres de paquetes.
+- Reconstruye copias temporales de los archivos versionados actuales; ignora
+  config.h/objetos antiguos y archivos no versionados. Todos los builds terminan
+  antes de publicar. No reescribe destinos con contenido/permisos correctos;
+  una nueva ejecución actualiza archivos cambiados y corrige permisos.
+- Un fallo de copia puede dejar una instalación parcial: corregir el error y
+  repetir. No hay rollback automático ni eliminación de archivos obsoletos.
+- `DESTDIR=/ruta/absoluta make install` prepara un árbol sin sudo. **No es un
+  sandbox:** las dependencias y paru siguen siendo los del host.
+
+El ejecutable instalado `wm-session` es el punto de entrada futuro de dwm:
+selecciona **GTK3/4 Adwaita claro y Qt generic/Fusion claro**, incluido Qt Quick,
+y añade el terminfo local a la búsqueda de ncurses conservando sus defaults.
+Su entorno solo se hereda a dwm y sus descendientes: no escribe preferencias,
+no cambia Plasma ni importa variables al bus. Iniciar dwm directamente no aplica
+este entorno; st fuera de él puede necesitar
+`TERMINFO_DIRS=/usr/local/share/terminfo:`.
+
+No se garantiza el tema de GTK2, apps con apariencia propia, procesos ya abiertos,
+sandboxes ni aplicaciones activadas por D-Bus fuera del árbol de dwm. No se ha
+validado el aspecto visual.
+
+Referencias: [paru](https://github.com/Morganamilo/paru),
+[GTK](https://wiki.archlinux.org/title/GTK), [Qt](https://wiki.archlinux.org/title/Qt)
+y [Fusion/Qt Quick](https://doc.qt.io/qt-6/qtquickcontrols-fusion.html).
 
 ## Publicación futura
 
