@@ -1,0 +1,13 @@
+diff --git a/config.def.h b/config.def.h
+index b6904dd..68fef38 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -4,7 +4,7 @@
+ /* appearance */
+ static const unsigned int borderpx = 1;
+ static const unsigned int snap = 32;
+-static const int showbar = 0;
++static const int showbar = 1;
+ static const int topbar = 0;
+ static const char *fonts[] = {
+ 	"Hack Nerd Font Mono:size=11",

@@ -247,7 +247,7 @@ for project in dwm dmenu st; do
 done
 install -m 755 "$root/session/wm-session" "$stage/usr/local/bin/wm-session"
 install -m 755 "$root/scripts/wm-supervisor" "$stage/usr/local/bin/wm-supervisor"
-for config in picom.conf dunstrc tint2rc pulse-client.conf; do
+for config in picom.conf dunstrc pulse-client.conf; do
 	install -D -m 644 "$root/session/$config" "$stage/usr/local/share/wm/$config"
 done
 install -m 755 "$root/scripts/wm-launcher" "$stage/usr/local/bin/wm-launcher"

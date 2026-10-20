@@ -130,7 +130,7 @@ integración de sesión. Los comandos de reproducción/volumen no justifican
 sustituir un gestor de audio existente ni activar servicios nuevos sin acuerdo.
 
 El inventario acordado para la sesión incluye Dunst, Picom, nm-applet,
-agente Polkit LXQt, CopyQ, tint2, snixembed, cbatticon y pasystray; GNOME Keyring/libsecret, GCR SSH
+agente Polkit LXQt, CopyQ, snixembed, cbatticon y pasystray; GNOME Keyring/libsecret, GCR SSH
 Agent y Seahorse; autorandr/xrandr para pantallas y herramientas de energía del sistema.
 El inventario completo está en `scripts/dependencies.tsv`: incluye los comandos
 del lanzador, libsecret y unidades de sistema/usuario necesarias. El instalador
@@ -160,20 +160,37 @@ arrancando otro gestor de ventanas dentro de la sesión actual.
 
 ## Bandeja, pantallas y bloqueo
 
-La integración usa tint2 para XEmbed y snixembed como puente SNI:
-bandeja compacta abajo a la derecha del monitor primario RandR, con reloj y sin
-barra completa ni tareas. El default `/usr/local/share/wm/tint2rc` usa anchura dinámica,
-altura de 24 píxeles e iconos de hasta 20, sin reservar una franja de pantalla.
-A la derecha de los iconos aparece la fecha y hora local en una línea:
-`2026-10-20 03:04:05` (`%Y-%m-%d %H:%M:%S`), formato 24 horas con segundos y
-ceros iniciales. Lo genera el reloj nativo de tint2, sin scripts adicionales.
-El supervisor reinicia solo la bandeja ante cambios de primaria/geometría,
-nunca por foco. No se necesitan Trayer ni Nitrogen; se mantiene un fondo liso
-claro (#f6f5f4) con xsetroot, sin wallpaper ni acción «Fondo». No es una bandeja
-implementada dentro de dwm. snixembed tiene soporte AppIndicator limitado;
-no se garantiza que todos los iconos de todas las aplicaciones sean compatibles.
+La barra propia de dwm permanece visible abajo en todos los monitores, con tag,
+layout y título de la ventana seleccionada. No hay autohide ni atajo para ocultarla.
+Reserva una franja para que maximización, mitades/cuartos y centrado respeten su
+espacio; fullscreen usa la pantalla completa y puede cubrirla. Se conservan la
+fuente, colores y altura nativos de dwm.
 
-La bandeja incluye dos applets GTK3, arrancados después de tint2/snixembed:
+La bandeja XEmbed integrada y el reloj quedan a la derecha del monitor principal
+RandR, sin seguir el foco; si no hay principal válido se usa el primer monitor.
+Los eventos RandR actualizan su ubicación sin sondeo ni reinicio de paneles.
+Los iconos se ajustan a la altura de la barra, con anchura máxima de cuatro veces
+esa altura; una bandeja desbordada queda recortada al ancho disponible.
+El reloj muestra `2026-10-20 03:04:05` (`%Y-%m-%d %H:%M:%S`), hora local de 24 horas
+con segundos y ceros iniciales, a la izquierda de los iconos. Lo actualiza el
+supervisor mediante xsetroot cada segundo, sin otro daemon de estado.
+
+El supervisor arranca dwm antes de Dunst, el puente y los applets, y espera a que
+su propia instancia publique la propiedad `_WM_SYSTRAY` (CARDINAL: PID de dwm,
+ventana de bandeja). Rechaza propiedades obsoletas o ajenas; si dwm termina o no
+obtiene su bandeja, aborta y limpia sus hijos. La barra aparece al arrancar dwm,
+no tras la espera del puente SNI; los agentes de secretos/SSH aún se preparan
+antes del gestor. dwm no roba una bandeja existente y conserva la barra si pierde
+la selección X11. Los iconos no son clientes normales ni reciben foco de dwm.
+
+Ya no se requiere tint2 ni se distribuye tint2rc; tampoco Trayer ni Nitrogen.
+Al actualizar, instalar conjuntamente dwm y el supervisor y volver a entrar en wm.
+No se desinstalan paquetes ni se borran configuraciones antiguas del sistema.
+Se mantiene xsetroot con fondo liso claro (#f6f5f4), sin acción «Fondo».
+snixembed sigue como puente SNI porque el parche solo implementa XEmbed. Su soporte
+AppIndicator es limitado; no se garantiza compatibilidad con todos los iconos.
+
+La bandeja incluye dos applets GTK3, arrancados después de dwm/snixembed:
 - **Batería (`cbatticon`)**: estado, porcentaje/estimación en el tooltip y avisos
   propios (por defecto bajo 20%, crítico 5%). No se configuran comandos de clic,
   nivel bajo o crítico: no suspende ni cambia la política de energía/tapa.
@@ -188,7 +205,7 @@ La bandeja incluye dos applets GTK3, arrancados después de tint2/snixembed:
 El supervisor arranca una instancia de cada applet y limpia sus grupos al salir;
 si terminan no cierra la sesión ni los relanza en bucle. Su visibilidad depende de
 la batería, servidor de audio y tema de iconos disponibles. Son clientes de
-bandeja, no módulos internos de tint2. Su presentación real queda por verificar.
+bandeja, no módulos internos de dwm. Su presentación real queda por verificar.
 
 «Pantallas» abre `wm-displays`, un asistente de menús dmenu centrados. Permite
 activar/desactivar salidas, elegir resolución, frecuencia, rotación y principal,
@@ -312,7 +329,8 @@ requiere una fase posterior autorizada.
 - [brightnessctl: clase, mínimo y permisos](https://github.com/Hummer12007/brightnessctl)
 - [Flameshot: interfaz de captura y opciones](https://flameshot.org/docs/advanced/commandline-options/)
 - [snixembed: alcance y soporte AppIndicator](https://man.archlinux.org/man/snixembed.1.en)
-- [tint2: bandeja, tamaño dinámico y monitor primario](https://man.archlinux.org/man/tint2.1.en)
+- [systray: parche comunitario de dwm](https://dwm.suckless.org/patches/systray/)
+- [X11 System Tray Protocol](https://specifications.freedesktop.org/systemtray/latest-single/)
 - [cbatticon: batería y comandos opcionales](https://github.com/valr/cbatticon)
 - [pasystray: controles y opciones](https://man.archlinux.org/man/pasystray.1.en)
 - [PulseAudio: configuración de clientes y autospawn](https://wiki.freedesktop.org/www/Software/PulseAudio/FAQ/)
@@ -327,4 +345,4 @@ requiere una fase posterior autorizada.
 - [NetworkManager](https://wiki.archlinux.org/title/NetworkManager)
 - [systemctl: habilitación sin inicio](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)
 - [snixembed en Arch](https://archlinux.org/packages/extra/x86_64/snixembed/)
-- [tint2 en Arch](https://archlinux.org/packages/extra/x86_64/tint2/)
+- [libXrandr en Arch](https://archlinux.org/packages/extra/x86_64/libxrandr/)

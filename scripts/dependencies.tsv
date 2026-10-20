@@ -63,7 +63,6 @@ command	nm-connection-editor	nm-connection-editor	/usr/bin/nm-connection-editor
 command	lxqt-policykit-agent	lxqt-policykit	/usr/bin/lxqt-policykit-agent
 command	autorandr	autorandr	/usr/bin/autorandr
 command	snixembed	snixembed	/usr/bin/snixembed
-command	tint2	tint2	/usr/bin/tint2
 command	cbatticon	cbatticon	/usr/bin/cbatticon
 command	pasystray	pasystray	/usr/bin/pasystray
 command	xrandr	xorg-xrandr	/usr/bin/xrandr
@@ -89,6 +88,7 @@ pc	libsecret-1	libsecret	libsecret-1.pc
 pc	x11	libx11	x11.pc
 pc	xft	libxft	xft.pc
 pc	xinerama	libxinerama	xinerama.pc
+pc	xrandr	libxrandr	xrandr.pc
 pc	fontconfig	fontconfig	fontconfig.pc
 pc	freetype2	freetype2	freetype2.pc
 font	Hack Nerd Font Mono	ttf-hack-nerd	/usr/share/fonts/TTF/HackNerdFontMono-Regular.ttf

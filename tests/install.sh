@@ -522,7 +522,8 @@ unset MOCK_ALLOW_SUDO
 DESTDIR=$dest
 cp "$work/install.original" "$fixture/scripts/install.sh"
 [ -x "$dest/usr/local/bin/wm-supervisor" ] || fail 'supervisor not packaged'
-for config in dunstrc picom.conf tint2rc; do
+[ ! -e "$dest/usr/local/share/wm/tint2rc" ] || fail 'obsolete tray config packaged'
+for config in dunstrc picom.conf pulse-client.conf; do
 	cmp "$fixture/session/$config" "$dest/usr/local/share/wm/$config" || fail 'session defaults'
 	[ "$(/usr/bin/stat -c %a "$dest/usr/local/share/wm/$config")" = 644 ] || fail 'session default mode'
 done

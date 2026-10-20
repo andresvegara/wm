@@ -1,12 +1,14 @@
 # wm
 
 Sesión X11 independiente de Plasma basada en dwm, dmenu y st. Un escritorio,
-ventanas flotantes, foco siguiendo el cursor, mitades/cuartos, maximización, bandeja compacta,
+ventanas flotantes, foco siguiendo el cursor, mitades/cuartos, maximización, barra nativa con bandeja,
 lanzador combinado, notificaciones, compositor y bloqueo. Apariencia clara
 Adwaita/Fusion solo en sus descendientes. No reemplaza ni desinstala Plasma.
 
 La [guía de sesión](docs/session.md) recoge atajos, componentes y límites.
-Bandeja tint2 con puente snixembed y fondo liso claro, sin wallpaper ni selector;
+Barra de dwm siempre visible abajo, con bandeja XEmbed y puente snixembed;
+sin tint2 ni otro panel. Reloj y bandeja en el monitor principal, barra en todos;
+fullscreen puede cubrirla. Fondo liso claro, sin wallpaper ni selector;
 no se requieren Nitrogen, Trayer ni GTK2 para esas funciones.
 «Pantallas» abre un asistente dmenu con posiciones relativas y confirmación con
 reversión en 15 segundos. Guarda automáticamente perfiles por combinación de
@@ -74,7 +76,6 @@ sudo install -Dm755 scripts/wm-control /usr/local/bin/wm-control
 sudo install -Dm755 scripts/wm-displays /usr/local/bin/wm-displays
 sudo install -Dm644 session/picom.conf /usr/local/share/wm/picom.conf
 sudo install -Dm644 session/dunstrc /usr/local/share/wm/dunstrc
-sudo install -Dm644 session/tint2rc /usr/local/share/wm/tint2rc
 sudo install -Dm644 session/pulse-client.conf /usr/local/share/wm/pulse-client.conf
 sudo install -Dm644 session/wm.desktop /usr/share/xsessions/wm.desktop
 sudo install -Dm644 session/wm-st.desktop /usr/local/share/applications/wm-st.desktop
@@ -98,7 +99,7 @@ existente a ciegas: resolver el conflicto antes. El script es la vía recomendad
 | Binarios y entrada de sesión | `/usr/local/bin` |
 | Manuales | `/usr/local/share/man/man1` |
 | Terminfo generado por el script | `/usr/local/share/terminfo` |
-| Defaults de Dunst/Picom/tint2 y cliente Pulse de pasystray | `/usr/local/share/wm` |
+| Defaults de Dunst/Picom y cliente Pulse de pasystray | `/usr/local/share/wm` |
 | Sesión X11 para SDDM | `/usr/share/xsessions/wm.desktop` |
 | Entrada de st / selección de terminal | `/usr/local/share/applications`, `/usr/local/share/xdg-terminal-exec` |
 

@@ -3,9 +3,19 @@
 
 #define main dwm_main
 #define drw_resize test_drw_resize
+#define drw_setscheme test_drw_setscheme
+#define drw_fontset_getwidth test_drw_fontset_getwidth
+#define drw_rect test_drw_rect
+#define drw_text test_drw_text
+#define drw_map test_drw_map
 #include "dwm.c"
 #undef main
 #undef drw_resize
+#undef drw_setscheme
+#undef drw_fontset_getwidth
+#undef drw_rect
+#undef drw_text
+#undef drw_map
 
 static Monitor monitor, other;
 static Client first, second;
@@ -21,6 +31,8 @@ static const char *setuppropertyvalue;
 static int setuppropertyformat;
 static Atom setuppropertytype;
 
+#include "dwm-tray.c"
+
 int
 XGetWindowProperty(Display *display, Window w, Atom property, long offset,
 	long length, Bool del, Atom requested, Atom *actual, int *format,
@@ -35,6 +47,12 @@ XGetWindowProperty(Display *display, Window w, Atom property, long offset,
 		memcpy(*data, setuppropertyvalue, *count + 1);
 		*actual = setuppropertytype;
 		*format = setuppropertyformat;
+	} else if (property == xembedinfo && embedpresent) {
+		*data = calloc(2, sizeof(long));
+		((long *)*data)[1] = embedflags;
+		*actual = embedtype ? embedtype : xembedinfo;
+		*format = embedformat;
+		*count = embedcount;
 	} else if ((property == netatom[NetWMWindowType] && windowtype)
 	|| (property == netatom[NetWMState] && initialstate)) {
 		*data = malloc(sizeof(long));
@@ -66,6 +84,8 @@ XMoveResizeWindow(Display *display, Window window, int x, int y,
 	unsigned int width, unsigned int height)
 {
 	assert(width > 0 && height > 0);
+	assert(window < LENGTH(traypositions));
+	traypositions[window] = (XWindowChanges){.x = x, .y = y, .width = width, .height = height};
 	return 1;
 }
 
@@ -91,6 +111,8 @@ XSendEvent(Display *display, Window window, Bool propagate, long mask,
 		assert(event->xclient.format == 32);
 		closeevents++;
 	}
+	if (event->type == ClientMessage && event->xclient.message_type == xembed)
+		embedmessages++;
 	return 1;
 }
 
@@ -167,12 +189,18 @@ int
 XChangeProperty(Display *display, Window window, Atom property, Atom type,
 	int format, int mode, const unsigned char *data, int count)
 {
+	if (trayready && property == trayready) {
+		assert(window == root && type == XA_CARDINAL && format == 32 && count == 2);
+		memcpy(readyvalues, data, sizeof readyvalues);
+	}
 	return 1;
 }
 
 int
 XDeleteProperty(Display *display, Window window, Atom property)
 {
+	if (trayready && property == trayready)
+		memset(readyvalues, 0, sizeof readyvalues);
 	return 1;
 }
 
@@ -245,6 +273,8 @@ int
 XMapWindow(Display *display, Window window)
 {
 	mapped = window;
+	assert(window < LENGTH(traymapped));
+	traymapped[window] = 1;
 	return 1;
 }
 
@@ -278,6 +308,19 @@ reset(void)
 {
 	int i;
 
+	assert(!trayicons && !traywin);
+	statusmon = traymon = NULL;
+	randractive = 0;
+	embedpresent = embedflags = embedmessages = 0;
+	embedformat = 32;
+	embedcount = 2;
+	embedtype = None;
+	trayselection = None;
+	memset(readyvalues, 0, sizeof readyvalues);
+	failselection = 0;
+	trayparents[50] = root;
+	memset(traymapped, 0, sizeof traymapped);
+	memset(traysaved, 0, sizeof traysaved);
 	monitor = (Monitor){0};
 	other = (Monitor){0};
 	first = (Client){0};
@@ -345,7 +388,7 @@ testconfig(void)
 
 	reset();
 	assert(LENGTH(tags) == 1 && MODKEY == Mod4Mask);
-	assert(!showbar && !topbar && !layouts[0].arrange);
+	assert(showbar && !topbar && !layouts[0].arrange);
 	assert(strstr(fonts[1], "Noto Color Emoji"));
 	assert(!strcmp(dmenucmd[0], "wm-launcher"));
 	assert(!strcmp(dmenucmd[1], "-m") && dmenucmd[2] == dmenumon);
@@ -353,7 +396,7 @@ testconfig(void)
 	assert(first.isfloating && first.tags == 1);
 	m = createmon();
 	assert(m->tagset[0] == 1 && m->tagset[1] == 1);
-	assert(!m->lt[0]->arrange && !m->showbar);
+	assert(!m->lt[0]->arrange && m->showbar);
 	free(m);
 	for (i = 0; i < LENGTH(keys); i++)
 		for (j = i + 1; j < LENGTH(keys); j++)
@@ -996,6 +1039,9 @@ main(void)
 	testinitialcenter();
 	testspawn();
 	testwindowsetups();
+	testtray();
+	testtrayselection();
+	testtraymonitors();
 	puts("PASS: dwm geometry, initial centering, pointer focus, close, spawn and setup history (mock Xlib, ASan/UBSan)");
 	return 0;
 }
