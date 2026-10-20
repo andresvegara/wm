@@ -1,0 +1,17 @@
+#!/bin/sh
+# Keep appearance local to dwm and its children, never the shared session bus.
+set -eu
+bindir=$(CDPATH= cd -- "${0%/*}" && pwd)
+XDG_CURRENT_DESKTOP=dwm
+XDG_SESSION_DESKTOP=dwm
+DESKTOP_SESSION=dwm
+GTK_THEME=Adwaita
+QT_QPA_PLATFORMTHEME=generic
+QT_STYLE_OVERRIDE=Fusion
+QT_QUICK_CONTROLS_STYLE=Fusion
+TERMINFO_DIRS=$bindir/../share/terminfo:${TERMINFO_DIRS-}
+export TERMINFO_DIRS
+export XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION GTK_THEME
+export QT_QPA_PLATFORMTHEME QT_STYLE_OVERRIDE QT_QUICK_CONTROLS_STYLE
+unset KDE_FULL_SESSION KDE_SESSION_VERSION QT_QUICK_CONTROLS_CONF
+exec "$bindir/dwm" "$@"

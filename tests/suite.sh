@@ -105,8 +105,9 @@ cc -std=c99 -pedantic -Wall \
     $(pkg-config --libs x11 xft) -lfontconfig -lm -lutil
 "$tmp/st-x-test"
 sh "$root/tests/export-patches.sh" "$root" "$tmp"
+sh "$root/tests/install.sh" "$root" "$tmp"
 
-for file in "$root"/tests/*.sh "$root"/scripts/*.sh; do
+for file in "$root"/tests/*.sh "$root"/scripts/*.sh "$root/session/wm-session"; do
 	[ -f "$file" ] || continue
 	sh -n "$file"
 done
