@@ -56,6 +56,11 @@ un mínimo de hardware de 1 para no pedir apagar el panel. Necesita permisos del
 sistema y un dispositivo compatible. No se configura DDC ni control individual
 de brillo de monitores externos. No se usa sudo desde los atajos.
 
+Las ventanas flotantes nuevas aparecen centradas en el área útil de su monitor.
+Los diálogos transientes usan el monitor de su padre. No se recentran docks,
+fullscreen ni ventanas existentes al redimensionarlas; las demasiado grandes se
+alinean con la esquina superior izquierda sin cambiar su tamaño.
+
 El supervisor aplica **teclado español de España (`es`, variante predeterminada)**
 con `setxkbmap` antes de arrancar aplicaciones. No persiste ajustes en `/etc` ni
 en las preferencias de Plasma. Si falla, no inicia los hijos de la sesión.
