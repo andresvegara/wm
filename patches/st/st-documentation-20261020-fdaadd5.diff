@@ -1,0 +1,112 @@
+diff --git a/README b/README
+index 6a846ed..7516955 100644
+--- a/README
++++ b/README
+@@ -3,6 +3,21 @@ st - simple terminal
+ st is a simple terminal emulator for X which sucks less.
+ 
+ 
++wm development configuration
++----------------------------
++This checkout is not installed or activated. Validate from the parent wm
++repository with make test. Do not run the installation commands below during
++this preparation phase.
++
++The wm profile uses Hack Nerd Font Mono at 11 points, a Noto Color Emoji
++fallback, the existing Alacritty palette, zero fixed padding, a blinking block
++cursor, Ctrl+Insert copy and familiar copy/paste/zoom shortcuts. The alpha patch
++sets background opacity to 0.9; transparency and blur require a compositor.
++No blur implementation is added to st itself. Scrollback/reflow is not ready.
++Color emoji and visual rendering still need a later authorized visual test.
++TERM remains st-256color; prepare matching terminfo during future installation,
++including remote hosts where it is needed. Do not substitute TERM blindly.
++
+ Requirements
+ ------------
+ In order to build st you need the Xlib header files.
+diff --git a/st.1 b/st.1
+index 39120b4..dab69f0 100644
+--- a/st.1
++++ b/st.1
+@@ -4,6 +4,8 @@ st \- simple terminal
+ .SH SYNOPSIS
+ .B st
+ .RB [ \-aiv ]
++.RB [ \-A
++.IR opacity ]
+ .RB [ \-c
+ .IR class ]
+ .RB [ \-f
+@@ -28,6 +30,8 @@ st \- simple terminal
+ .PP
+ .B st
+ .RB [ \-aiv ]
++.RB [ \-A
++.IR opacity ]
+ .RB [ \-c
+ .IR class ]
+ .RB [ \-f
+@@ -55,6 +59,11 @@ is a simple terminal emulator.
+ .B \-a
+ disable alternate screens in terminal
+ .TP
++.BI \-A " opacity"
++Set background opacity to a finite number between 0 and 1 (default 0.9).
++Requires a 32-bit visual and a compositor for transparency.
++On other visuals the background stays opaque. Invalid values are rejected.
++.TP
+ .BI \-c " class"
+ defines the window class (default $TERM).
+ .TP
+@@ -154,11 +163,32 @@ Reset to default font size.
+ .B Ctrl-Shift-y
+ Paste from primary selection (middle mouse button).
+ .TP
+-.B Ctrl-Shift-c
++.B Ctrl-Shift-c, Ctrl-Insert
+ Copy the selected text to the clipboard selection.
+ .TP
+ .B Ctrl-Shift-v
+ Paste from the clipboard selection.
++.TP
++.B Ctrl-=, Ctrl-+
++Increase font size.
++.TP
++.B Ctrl--
++Decrease font size.
++.TP
++.B Ctrl-0
++Reset font size.
++.TP
++.B Shift-Insert
++Paste from the primary selection.
++.SH WM DEVELOPMENT
++This profile uses Hack Nerd Font Mono at 11 points, a Noto Color Emoji fallback,
++a blinking block cursor, zero fixed padding and per-pixel window resizing.
++Emoji rendering depends on installed fonts and Xft; complex emoji sequences
++are not guaranteed. Blur is the compositor's responsibility.
++.PP
++Scrollback/reflow is not implemented yet. This checkout is not ready to replace
++the current terminal. Use make test in the parent wm repository; do not install
++or start the terminal during this development phase.
+ .SH CUSTOMIZATION
+ .B st
+ can be customized by creating a custom config.h and (re)compiling the source
+diff --git a/x.c b/x.c
+index 9edbbec..8451096 100644
+--- a/x.c
++++ b/x.c
+@@ -2097,11 +2097,11 @@ run(void)
+ void
+ usage(void)
+ {
+-	die("usage: %s [-aiv] [-c class] [-f font] [-g geometry]"
++	die("usage: %s [-aiv] [-A opacity] [-c class] [-f font] [-g geometry]"
+ 	    " [-n name] [-o file]\n"
+ 	    "          [-T title] [-t title] [-w windowid]"
+ 	    " [[-e] command [args ...]]\n"
+-	    "       %s [-aiv] [-c class] [-f font] [-g geometry]"
++	    "       %s [-aiv] [-A opacity] [-c class] [-f font] [-g geometry]"
+ 	    " [-n name] [-o file]\n"
+ 	    "          [-T title] [-t title] [-w windowid] -l line"
+ 	    " [stty_args ...]\n", argv0, argv0);
