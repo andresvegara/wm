@@ -13,6 +13,30 @@ static Clr testcolors[3];
 static Clr *testscheme[] = { testcolors, testcolors };
 static int deleteprotocol, closeevents, replayevents, configureevents;
 static Window focused, raised;
+static Atom windowtype;
+static unsigned int lastborder;
+
+int
+XGetWindowProperty(Display *display, Window w, Atom property, long offset,
+	long length, Bool del, Atom requested, Atom *actual, int *format,
+	unsigned long *count, unsigned long *remaining, unsigned char **data)
+{
+	*data = NULL;
+	if (property == netatom[NetWMWindowType] && windowtype) {
+		*data = malloc(sizeof(long));
+		*(long *)*data = windowtype;
+		*format = 32;
+		*count = 1;
+	}
+	return Success;
+}
+
+int
+XSetWindowBorderWidth(Display *display, Window w, unsigned int width)
+{
+	lastborder = width;
+	return 1;
+}
 static unsigned int ungrabs[64];
 
 /* Never let a test open a real display, even if its environment is wrong. */
@@ -21,6 +45,14 @@ XOpenDisplay(const char *name)
 {
 	assert(!"tests must not open an X display");
 	return NULL;
+}
+
+int
+XMoveResizeWindow(Display *display, Window window, int x, int y,
+	unsigned int width, unsigned int height)
+{
+	assert(width > 0 && height > 0);
+	return 1;
 }
 
 int
@@ -201,7 +233,8 @@ reset(void)
 	sw = 4000;
 	sh = 2400;
 	deleteprotocol = closeevents = replayevents = configureevents = 0;
-	focused = raised = None;
+	focused = raised = windowtype = None;
+	lastborder = 99;
 	memset(ungrabs, 0, sizeof ungrabs);
 	for (i = 0; i < NetLast; i++)
 		netatom[i] = 100 + i;
@@ -496,6 +529,41 @@ testmonitors(void)
 	expectgeom(101, 60, 601, 401);
 }
 
+static void
+testdock(void)
+{
+	XEvent event = {0};
+	Arg next = {.i = 1};
+
+	reset();
+	second = first;
+	second.win = 20;
+	second.next = second.snext = &first;
+	monitor.clients = monitor.stack = &second;
+	windowtype = netatom[NetWMWindowTypeDock];
+	updatewindowtype(&second);
+	assert(second.isdock && second.isfloating && !second.bw && !lastborder);
+	focus(&second);
+	assert(monitor.sel == &first);
+	focus(NULL);
+	assert(monitor.sel == &first);
+	focusstack(&next);
+	assert(monitor.sel == &first && raised == second.win);
+	first.isfullscreen = 1;
+	restack(&monitor);
+	assert(raised == first.win);
+	event.xconfigurerequest.window = second.win;
+	event.xconfigurerequest.value_mask = CWX|CWY|CWWidth|CWHeight|CWBorderWidth;
+	event.xconfigurerequest.x = -900;
+	event.xconfigurerequest.y = 800;
+	event.xconfigurerequest.width = 50;
+	event.xconfigurerequest.height = 24;
+	event.xconfigurerequest.border_width = 10;
+	configurerequest(&event);
+	assert(second.x == -900 && second.y == 800);
+	assert(second.w == 50 && second.h == 24 && !second.bw);
+}
+
 int
 main(void)
 {
@@ -508,6 +576,7 @@ main(void)
 	testfocus();
 	testcrossfocus();
 	testmonitors();
+	testdock();
 	puts("PASS: dwm configuration, placement, focus, close and monitor tests");
 	return 0;
 }
