@@ -1,0 +1,43 @@
+diff --git a/README b/README
+index d1ebdef..c1707ad 100644
+--- a/README
++++ b/README
+@@ -9,8 +9,8 @@ This checkout is not installed or activated. Validate from the parent wm
+ repository with make test. Do not run the installation commands below during
+ this preparation phase.
+ 
+-The wm profile uses Hack Nerd Font Mono at 11 points, a Noto Color Emoji
+-fallback, the existing Alacritty palette, zero fixed padding, a blinking block
++The wm profile uses Hack Nerd Font Mono at 11 points as its only primary font,
++the existing Alacritty palette, zero fixed padding, a blinking block
+ cursor, Ctrl+Insert copy and familiar copy/paste/zoom shortcuts. The alpha patch
+ sets background opacity to 0.9; transparency and blur require a compositor.
+ No blur implementation is added to st itself. Scrollback holds 2000 physical
+@@ -24,7 +24,10 @@ History/reflow adapts the suckless community scrollback 0.9.2 and reflow 0.9.2
+ patches, based on work by BeyondMagic et al. The bounded resize ring and wide
+ cell handling follow bakkeby/st-flexipatch (MIT/X Consortium license). Sources
+ and provenance are retained in the parent wm repository under patches/upstream.
+-Color emoji and visual rendering still need a later authorized visual test.
++Missing glyphs use st's existing Fontconfig fallback. Do not add Noto Color Emoji
++to the primary family list: matching can select it for the entire terminal and
++impose its bitmap strike size. Color emoji and visual rendering still need an
++authorized visual test.
+ TERM remains st-256color; prepare matching terminfo during future installation,
+ including remote hosts where it is needed. Do not substitute TERM blindly.
+ 
+diff --git a/st.1 b/st.1
+index dab69f0..d3f94cb 100644
+--- a/st.1
++++ b/st.1
+@@ -181,8 +181,10 @@ Reset font size.
+ .B Shift-Insert
+ Paste from the primary selection.
+ .SH WM DEVELOPMENT
+-This profile uses Hack Nerd Font Mono at 11 points, a Noto Color Emoji fallback,
++This profile uses Hack Nerd Font Mono at 11 points as its only primary font,
+ a blinking block cursor, zero fixed padding and per-pixel window resizing.
++Missing glyphs use the existing Fontconfig fallback. Do not include an emoji
++font in the primary family list: it may be selected for the whole terminal.
+ Emoji rendering depends on installed fonts and Xft; complex emoji sequences
+ are not guaranteed. Blur is the compositor's responsibility.
+ .PP
