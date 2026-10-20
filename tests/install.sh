@@ -7,8 +7,9 @@ fixture=$work/source\ tree
 bin=$work/bin
 dest=$work/destination\ tree
 mkdir -p "$fixture/scripts" "$fixture/session" "$bin" "$work/build"
-cp "$root/scripts/install.sh" "$root/scripts/dependencies.tsv" "$root/scripts/wm-launcher" "$fixture/scripts/"
+cp "$root/scripts/install.sh" "$root/scripts/dependencies.tsv" "$root/scripts/wm-launcher" "$root/scripts/wm-supervisor" "$fixture/scripts/"
 cp -R "$root/session/." "$fixture/session/"
+cp "$root/checkouts.tsv" "$fixture/checkouts.tsv"
 
 fail()
 {
@@ -23,7 +24,7 @@ while IFS="$tab" read -r kind name package path; do
 	printf '#!/bin/sh\nexit 0\n' > "$bin/$name"
 	chmod 755 "$bin/$name"
 done < "$root/scripts/dependencies.tsv"
-for cmd in sh env tar cp rm mkdir mktemp cmp stat find sed grep tr head; do
+for cmd in sh env tar cp rm mkdir mv mktemp cmp find sed grep tr head; do
 	ln -sf "/usr/bin/$cmd" "$bin/$cmd"
 done
 cat_mock()
@@ -38,8 +39,32 @@ printf '%s\n' "${MOCK_UID-1000}"
 MOCK
 cat_mock git <<'MOCK'
 #!/bin/sh
-[ "$1" = -C ] && [ "$3" = ls-files ] || exit 90
-while IFS= read -r file; do printf '%s\n' "$file"; done < "$2/tracked"
+set -eu
+[ "$1" = -C ] || exit 90
+src=$2
+shift 2
+case "$1" in
+init) mkdir "$src/.git" ;;
+remote)
+	case "$2" in
+	add) case "$4" in https://github.com/*) ;; *) exit 91 ;; esac ;;
+	set-url) ;;
+	*) exit 90 ;;
+	esac ;;
+fetch)
+	printf 'fetch %s\n' "$*" >> "$MOCK_LOG"
+	[ "${MOCK_FETCH_FAIL-0}" = 0 ] || exit 46
+	printf '%s\n' "$3" > "$src/revision"
+	cp -R "$MOCK_STATE/bootstrap-source/." "$src/"
+	;;
+checkout) [ "${MOCK_CHECKOUT_FAIL-0}" = 0 ] ;;
+rev-parse)
+	if [ "${MOCK_WRONG_PIN-0}" = 1 ]; then printf wrong; else
+		while IFS= read -r line; do printf '%s\n' "$line"; done < "$src/revision"
+	fi ;;
+ls-files) while IFS= read -r file; do printf '%s\n' "$file"; done < "$src/tracked" ;;
+*) exit 90 ;;
+esac
 MOCK
 cat_mock make <<'MOCK'
 #!/bin/sh
@@ -96,6 +121,12 @@ case "$target" in
 "$MOCK_DEST"/*)
 	printf 'publish %s\n' "$target" >> "$MOCK_LOG"
 	[ "${MOCK_INSTALL_FAIL-0}" = 0 ] || exit 44
+	if [ -n "${MOCK_INSTALL_FAIL_AFTER-}" ]; then
+		count=0
+		[ ! -f "$MOCK_STATE/copies" ] || read -r count < "$MOCK_STATE/copies"
+		[ "$count" -lt "$MOCK_INSTALL_FAIL_AFTER" ] || exit 44
+		printf '%s\n' "$((count + 1))" > "$MOCK_STATE/copies"
+	fi
 	;;
 esac
 exec /usr/bin/install "$@"
@@ -114,10 +145,58 @@ if [ ! -f "$MOCK_BIN/cc" ]; then
 	/usr/bin/chmod 755 "$MOCK_BIN/cc"
 fi
 MOCK
+cat_mock systemctl <<'MOCK'
+#!/bin/sh
+set -eu
+[ "$1" = --system ] || exit 90
+shift
+case "$1" in
+show)
+	case "$2" in
+	--property=LoadState) [ ! -f "$MOCK_STATE/unit-$4" ] && printf 'loaded\n' || printf 'not-found\n' ;;
+	--property=Id) printf '%s\n' "${MOCK_DISPLAY_MANAGER-sddm.service}" ;;
+	--property=ActiveState) printf '%s\n' "${MOCK_COMPETITOR_ACTIVE-inactive}" ;;
+	*) exit 90 ;;
+	esac ;;
+list-unit-files|list-units)
+	[ -z "${MOCK_COMPETITOR-}" ] || printf '%s disabled -\n' "$MOCK_COMPETITOR" ;;
+is-enabled)
+	case "$2" in
+	sddm.service|NetworkManager.service)
+		if [ -f "$MOCK_STATE/enabled-$2" ]; then printf 'enabled\n'; else printf '%s\n' "${MOCK_SERVICE_STATE-disabled}"; fi ;;
+	*) printf '%s\n' "${MOCK_COMPETITOR_STATE-disabled}" ;;
+	esac ;;
+enable)
+	[ "${MOCK_ALLOW_SUDO-0}" = 1 ] || exit 99
+	printf 'enable %s\n' "$2" >> "$MOCK_LOG"
+	[ "${MOCK_ENABLE_FAIL-0}" = 0 ] || exit 47
+	printf enabled > "$MOCK_STATE/enabled-$2" ;;
+*) printf 'FORBIDDEN systemctl %s\n' "$*" >> "$MOCK_LOG"; exit 99 ;;
+esac
+MOCK
 cat_mock sudo <<'MOCK'
 #!/bin/sh
-printf 'FORBIDDEN sudo\n' >> "$MOCK_LOG"
-exit 99
+set -eu
+if [ "${MOCK_ALLOW_SUDO-0}" != 1 ]; then
+	printf 'FORBIDDEN sudo\n' >> "$MOCK_LOG"
+	exit 99
+fi
+case "$1" in
+install)
+	[ "$2:$3:$4:$5:$6" = -D:-o:0:-g:0 ] || exit 90
+	shift 6
+	exec install -D "$@" ;;
+systemctl) exec "$@" ;;
+*) exit 99 ;;
+esac
+MOCK
+cat_mock stat <<'MOCK'
+#!/bin/sh
+if [ "${MOCK_ALLOW_SUDO-0}" = 1 ] && [ "$1:$2" = -c:%u:%g ]; then
+	printf '0:0\n'
+else
+	exec /usr/bin/stat "$@"
+fi
 MOCK
 
 for project in dwm dmenu st; do
@@ -144,6 +223,11 @@ for project in dwm dmenu st; do
 done
 
 export MOCK_LOG=$work/log MOCK_STATE=$work MOCK_BIN=$bin MOCK_DEST=$dest
+export WM_RESOURCE_ROOT=$work/resources
+mkdir -p "$WM_RESOURCE_ROOT/usr/lib/systemd/user"
+for unit in gnome-keyring-daemon.socket gnome-keyring-daemon.service gcr-ssh-agent.socket gcr-ssh-agent.service; do
+	printf synthetic > "$WM_RESOURCE_ROOT/usr/lib/systemd/user/$unit"
+done
 export WM_OS_RELEASE=$work/os-release
 export DESTDIR=$dest
 printf 'ID=other\n' > "$WM_OS_RELEASE"
@@ -159,8 +243,23 @@ reject()
 }
 no_publish()
 {
-	if grep -q '^publish\|^FORBIDDEN' "$MOCK_LOG"; then fail 'unexpected publication/elevation'; fi
+	if grep -q '^publish\|^FORBIDDEN\|^enable ' "$MOCK_LOG"; then fail 'unexpected publication/elevation'; fi
 }
+
+# Malformed checkpoint inventories fail before dependencies, Git or publication.
+cp "$fixture/checkouts.tsv" "$work/checkouts.good"
+for invalid in duplicate missing revision project; do
+	case "$invalid" in
+	duplicate) cp "$work/checkouts.good" "$fixture/checkouts.tsv"
+		printf 'st\tgit@github.com:andresvegara/st.git\t%s\n' 19a49a0480ff0ff1cd49f0500137619c622f4f3f >> "$fixture/checkouts.tsv" ;;
+	missing) printf '' > "$fixture/checkouts.tsv" ;;
+	revision) printf 'st\thttps://example.invalid/st.git\tbad-pin\n' > "$fixture/checkouts.tsv" ;;
+	project) printf '../escape\thttps://example.invalid/st.git\tbad\n' > "$fixture/checkouts.tsv" ;;
+	esac
+	reject
+	[ ! -s "$MOCK_LOG" ] || fail 'invalid inventory triggered work'
+done
+cp "$work/checkouts.good" "$fixture/checkouts.tsv"
 
 # Non-Arch, Arch derivatives and unknown OS never try a package manager.
 rm "$bin/cc"
@@ -206,10 +305,43 @@ run || { /usr/bin/tail -50 "$work/output"; fail 'Arch install'; }
 grep -q 'paru -S --needed gcc libxft ttf-hack-nerd noto-fonts-emoji' "$MOCK_LOG" || fail 'wrong Arch packages'
 [ -x "$dest/usr/local/bin/st" ] || fail 'missing executable'
 [ -x "$dest/usr/local/bin/wm-session" ] || fail 'missing session wrapper'
+[ "$(stat -c %a "$dest/usr/share/xsessions/wm.desktop")" = 644 ] || fail 'session desktop mode'
+grep -qx 'Exec=/usr/local/bin/wm-session' "$dest/usr/share/xsessions/wm.desktop" || fail 'session desktop Exec'
+grep -qx 'Type=Application' "$dest/usr/share/xsessions/wm.desktop" || fail 'session desktop type'
+if grep -q '^Hidden=true\|^NoDisplay=true' "$dest/usr/share/xsessions/wm.desktop"; then fail 'hidden X11 session'; fi
 [ -f "$dest/usr/local/share/terminfo/s/st-256color" ] || fail 'missing isolated terminfo'
 [ "$(/usr/bin/stat -c %a "$dest/usr/local/share/man/man1/st.1")" = 644 ] || fail 'manual mode'
 grep -q 'st 1.2' "$dest/usr/local/share/man/man1/st.1" || fail 'manual version'
 [ -z "$(find "$work/build" -mindepth 1 -print)" ] || fail 'temporary build leaked'
+if grep -q '^enable ' "$MOCK_LOG"; then fail 'DESTDIR enabled services'; fi
+
+# Bootstrap is mocked: no real Git/network, and failed trees are never published.
+cp -R "$fixture/st" "$work/bootstrap-source"
+mv "$fixture/st" "$work/existing-st"
+MOCK_FETCH_FAIL=1; export MOCK_FETCH_FAIL
+reject
+no_publish
+[ ! -e "$fixture/st" ] || fail 'failed bootstrap published a checkout'
+[ -z "$(find "$fixture" -maxdepth 1 -name '.bootstrap-*' -print)" ] || fail 'bootstrap leaked'
+unset MOCK_FETCH_FAIL
+MOCK_CHECKOUT_FAIL=1; export MOCK_CHECKOUT_FAIL
+reject
+no_publish
+[ ! -e "$fixture/st" ] || fail 'failed checkout published a tree'
+[ -z "$(find "$fixture" -maxdepth 1 -name '.bootstrap-*' -print)" ] || fail 'failed checkout leaked'
+unset MOCK_CHECKOUT_FAIL
+MOCK_WRONG_PIN=1; export MOCK_WRONG_PIN
+reject
+no_publish
+[ ! -e "$fixture/st" ] || fail 'wrong pin published a checkout'
+unset MOCK_WRONG_PIN
+run || fail 'bootstrap install'
+[ -d "$fixture/st/.git" ] || fail 'bootstrap checkout missing'
+[ "$(grep -c '^fetch ' "$MOCK_LOG")" = 1 ] || fail 'existing checkout fetched'
+run || fail 'repeat bootstrap install'
+if grep -q '^fetch ' "$MOCK_LOG"; then fail 'existing checkout fetched again'; fi
+rm -rf "$fixture/st"
+mv "$work/existing-st" "$fixture/st"
 
 # Every declared executable/pc module is actually checked, without package actions.
 printf 'ID=other\n' > "$WM_OS_RELEASE"
@@ -221,6 +353,18 @@ while IFS="$tab" read -r kind name package path; do
 		reject
 		grep -Fq "$path" "$work/output" || fail "unchecked command: $name"
 		mv "$work/held-command" "$bin/$name"
+		;;
+	unit)
+		printf missing > "$work/unit-$name"
+		reject
+		grep -Fq "$path" "$work/output" || fail "unchecked system unit: $name"
+		rm "$work/unit-$name"
+		;;
+	userunit)
+		mv "$WM_RESOURCE_ROOT/usr/lib/systemd/user/$name" "$work/held-unit"
+		reject
+		grep -Fq "$path" "$work/output" || fail "unchecked user unit: $name"
+		mv "$work/held-unit" "$WM_RESOURCE_ROOT/usr/lib/systemd/user/$name"
 		;;
 	pygi)
 		printf missing > "$work/pygi"
@@ -239,6 +383,31 @@ while IFS="$tab" read -r kind name package path; do
 	[ ! -s "$MOCK_LOG" ] || fail 'dependency failure triggered work'
 done < "$root/scripts/dependencies.tsv"
 [ ! -e "$work/os-executed" ] || fail 'os-release was executed as code'
+
+# Conflicts, masked required units and unknown system states abort before copies.
+MOCK_DISPLAY_MANAGER=gdm.service; export MOCK_DISPLAY_MANAGER
+reject
+no_publish
+unset MOCK_DISPLAY_MANAGER
+for unit in lightdm.service systemd-networkd.socket connman.service dhcpcd@eth0.service netctl@wifi.service; do
+	MOCK_COMPETITOR=$unit MOCK_COMPETITOR_STATE=enabled
+	export MOCK_COMPETITOR MOCK_COMPETITOR_STATE
+	reject
+	no_publish
+	MOCK_COMPETITOR_STATE=disabled MOCK_COMPETITOR_ACTIVE=active
+	export MOCK_COMPETITOR_ACTIVE
+	reject
+	no_publish
+	unset MOCK_COMPETITOR_ACTIVE
+done
+MOCK_COMPETITOR_STATE=unexpected
+reject
+no_publish
+unset MOCK_COMPETITOR MOCK_COMPETITOR_STATE
+MOCK_SERVICE_STATE=masked; export MOCK_SERVICE_STATE
+reject
+no_publish
+unset MOCK_SERVICE_STATE
 
 # The source tree and HOME remain untouched; repeated installs preserve inodes.
 grep -q stale "$fixture/st/config.h" || fail 'modified source checkout'
@@ -279,12 +448,40 @@ reject
 unset MOCK_INSTALL_FAIL
 run || fail 'resume after failed copy'
 
+# Ancestor symlinks and non-directories also fail before any final copy.
+mv "$dest/usr/local/bin" "$work/held-bin"
+ln -s "$work/held-bin" "$dest/usr/local/bin"
+reject
+no_publish
+grep -q 'enlace simbólico' "$work/output" || fail 'ancestor symlink accepted'
+rm "$dest/usr/local/bin"
+printf blocked > "$dest/usr/local/bin"
+reject
+no_publish
+rm "$dest/usr/local/bin"
+mv "$work/held-bin" "$dest/usr/local/bin"
+
+# A mid-publication failure may leave a partial update; repeating repairs it.
+printf 'second dwm\n' > "$fixture/dwm/PAYLOAD"
+printf 'second dmenu\n' > "$fixture/dmenu/PAYLOAD"
+MOCK_INSTALL_FAIL_AFTER=1; export MOCK_INSTALL_FAIL_AFTER
+reject
+[ "$(grep -c '^publish ' "$MOCK_LOG")" = 2 ] || fail 'mid-copy failure not exercised'
+unset MOCK_INSTALL_FAIL_AFTER
+run || fail 'repair partial publication'
+grep -q 'second dwm' "$dest/usr/local/bin/dwm" || fail 'partial dwm not repaired'
+grep -q 'second dmenu' "$dest/usr/local/bin/dmenu" || fail 'partial dmenu not repaired'
+run || fail 'repeat repaired publication'
+no_publish
+
 MOCK_UID=0; export MOCK_UID
 reject
 [ ! -s "$MOCK_LOG" ] || fail 'root performed work'
 unset MOCK_UID
-DESTDIR=relative
-reject
+for DESTDIR in relative / ///; do
+	reject
+	[ ! -s "$MOCK_LOG" ] || fail 'invalid DESTDIR triggered work'
+done
 DESTDIR=$dest
 # Missing sudo is diagnosed before any real destination is inspected.
 mv "$bin/sudo" "$work/sudo"
@@ -295,7 +492,33 @@ no_publish
 DESTDIR=$dest
 mv "$work/sudo" "$bin/sudo"
 
-# Test the installed wrapper against a sibling fake dwm, never a real display.
+# Non-staging privilege/service paths, remapped ONLY inside the test fixture.
+# Real target inspection/copies remain inside the synthetic destination tree.
+cp "$fixture/scripts/install.sh" "$work/install.original"
+sed 's/target=$dest/target=$MOCK_DEST/' "$work/install.original" > "$fixture/scripts/install.sh"
+DESTDIR=
+MOCK_ALLOW_SUDO=1; export MOCK_ALLOW_SUDO
+run || { /usr/bin/tail -30 "$work/output"; fail 'future service enable'; }
+[ "$(grep -c '^enable ' "$MOCK_LOG")" = 2 ] || fail 'services not enabled exactly once'
+run || fail 'repeat future service enable'
+no_publish
+if grep -q '^enable ' "$MOCK_LOG"; then fail 'enabled services rewritten'; fi
+rm "$work/enabled-sddm.service"
+MOCK_ENABLE_FAIL=1; export MOCK_ENABLE_FAIL
+reject
+grep -q 'archivos instalados, pero falló' "$work/output" || fail 'enable failure not diagnosed'
+unset MOCK_ENABLE_FAIL
+run || fail 'repair enable failure'
+[ "$(grep -c '^enable ' "$MOCK_LOG")" = 1 ] || fail 'wrong enable repair'
+unset MOCK_ALLOW_SUDO
+DESTDIR=$dest
+cp "$work/install.original" "$fixture/scripts/install.sh"
+[ -x "$dest/usr/local/bin/wm-supervisor" ] || fail 'supervisor not packaged'
+for config in dunstrc picom.conf; do
+	cmp "$fixture/session/$config" "$dest/usr/local/share/wm/$config" || fail 'session defaults'
+done
+
+# Test the wrapper's environment against a sibling fake supervisor, never X.
 cat_mock unused <<'MOCK'
 #!/bin/sh
 set -eu
@@ -307,14 +530,14 @@ set -eu
 [ "$#" = 2 ] && [ "$1" = 'argument with spaces' ] && [ "$2" = '*' ]
 printf passed > "$SESSION_LOG"
 MOCK
-cp "$bin/unused" "$dest/usr/local/bin/dwm"
+cp "$bin/unused" "$dest/usr/local/bin/wm-supervisor"
 export GTK_THEME=Adwaita:dark QT_STYLE_OVERRIDE=breeze QT_QPA_PLATFORMTHEME=kde
 export QT_QUICK_CONTROLS_STYLE=Material QT_QUICK_CONTROLS_CONF=/not/read
 export KDE_FULL_SESSION=true KDE_SESSION_VERSION=6 TERMINFO_DIRS=/custom/terminfo:
 export SESSION_HOME=$HOME SESSION_CONFIG=$XDG_CONFIG_HOME
 export SESSION_BINDIR=$dest/usr/local/bin SESSION_LOG=$work/session-result
 sh "$dest/usr/local/bin/wm-session" 'argument with spaces' '*' || fail 'session environment'
-[ "$(/usr/bin/head -c 6 "$SESSION_LOG")" = passed ] || fail 'fake dwm not called'
+[ "$(/usr/bin/head -c 6 "$SESSION_LOG")" = passed ] || fail 'fake supervisor not called'
 [ "$GTK_THEME:$QT_STYLE_OVERRIDE:$QT_QPA_PLATFORMTHEME" = Adwaita:dark:breeze:kde ] || fail 'parent environment changed'
 [ "$KDE_FULL_SESSION:$KDE_SESSION_VERSION:$QT_QUICK_CONTROLS_CONF" = true:6:/not/read ] || fail 'parent overrides changed'
 unset GTK_THEME QT_STYLE_OVERRIDE QT_QPA_PLATFORMTHEME QT_QUICK_CONTROLS_STYLE

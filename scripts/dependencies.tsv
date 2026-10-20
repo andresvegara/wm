@@ -18,6 +18,7 @@ command	stat	coreutils	/usr/bin/stat
 command	cp	coreutils	/usr/bin/cp
 command	rm	coreutils	/usr/bin/rm
 command	mkdir	coreutils	/usr/bin/mkdir
+command	mv	coreutils	/usr/bin/mv
 command	mktemp	coreutils	/usr/bin/mktemp
 command	find	findutils	/usr/bin/find
 command	sed	sed	/usr/bin/sed
@@ -39,6 +40,48 @@ command	chromium	chromium	/usr/bin/chromium
 command	dolphin	dolphin	/usr/bin/dolphin
 command	spotify	spotify	/usr/bin/spotify
 command	copyq	copyq	/usr/bin/copyq
+# Shortcut providers: https://archlinux.org/packages/extra/x86_64/playerctl/
+# https://archlinux.org/packages/extra/x86_64/wireplumber/
+# https://archlinux.org/packages/extra/x86_64/brightnessctl/
+# https://archlinux.org/packages/extra/x86_64/flameshot/
+command	playerctl	playerctl	/usr/bin/playerctl
+command	wpctl	wireplumber	/usr/bin/wpctl
+command	brightnessctl	brightnessctl	/usr/bin/brightnessctl
+command	flameshot	flameshot	/usr/bin/flameshot
+# Session inventory and resource provenance: docs/session.md
+command	sddm	sddm	/usr/bin/sddm
+command	NetworkManager	networkmanager	/usr/bin/NetworkManager
+command	systemctl	systemd	/usr/bin/systemctl
+command	loginctl	systemd	/usr/bin/loginctl
+command	gdbus	glib2	/usr/bin/gdbus
+command	dunst	dunst	/usr/bin/dunst
+command	picom	picom	/usr/bin/picom
+command	nitrogen	nitrogen	/usr/bin/nitrogen
+command	nm-applet	network-manager-applet	/usr/bin/nm-applet
+command	nm-connection-editor	nm-connection-editor	/usr/bin/nm-connection-editor
+command	lxqt-policykit-agent	lxqt-policykit	/usr/bin/lxqt-policykit-agent
+command	lxqt-config-monitor	lxqt-config	/usr/bin/lxqt-config-monitor
+command	snixembed	snixembed	/usr/bin/snixembed
+command	trayer	trayer	/usr/bin/trayer
+command	xrandr	xorg-xrandr	/usr/bin/xrandr
+command	xset	xorg-xset	/usr/bin/xset
+command	xsetroot	xorg-xsetroot	/usr/bin/xsetroot
+command	xmessage	xorg-xmessage	/usr/bin/xmessage
+command	xss-lock	xss-lock	/usr/bin/xss-lock
+command	i3lock	i3lock	/usr/bin/i3lock
+command	gnome-keyring-daemon	gnome-keyring	/usr/bin/gnome-keyring-daemon
+command	seahorse	seahorse	/usr/bin/seahorse
+command	pavucontrol	pavucontrol	/usr/bin/pavucontrol
+command	upower	upower	/usr/bin/upower
+command	watch	procps-ng	/usr/bin/watch
+command	remmina	remmina	/usr/bin/remmina
+userunit	gnome-keyring-daemon.socket	gnome-keyring	/usr/lib/systemd/user/gnome-keyring-daemon.socket
+userunit	gnome-keyring-daemon.service	gnome-keyring	/usr/lib/systemd/user/gnome-keyring-daemon.service
+userunit	gcr-ssh-agent.socket	gcr-4	/usr/lib/systemd/user/gcr-ssh-agent.socket
+userunit	gcr-ssh-agent.service	gcr-4	/usr/lib/systemd/user/gcr-ssh-agent.service
+unit	sddm.service	sddm	/usr/lib/systemd/system/sddm.service
+unit	NetworkManager.service	networkmanager	/usr/lib/systemd/system/NetworkManager.service
+pc	libsecret-1	libsecret	libsecret-1.pc
 pc	x11	libx11	x11.pc
 pc	xft	libxft	xft.pc
 pc	xinerama	libxinerama	xinerama.pc
