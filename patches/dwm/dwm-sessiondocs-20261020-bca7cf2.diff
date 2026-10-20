@@ -1,0 +1,83 @@
+diff --git a/README b/README
+index 69c63da..e949ea3 100644
+--- a/README
++++ b/README
+@@ -9,7 +9,15 @@ This checkout is an unactivated customization. Use make test from the parent
+ wm directory, not make install or startx. It uses one tag, floating windows,
+ click-to-focus, per-window half/quarter placement, maximize/restore and ordinary
+ close requests without killing unsupported clients. The manual documents the
+-current bindings. Compact tray and full session integration are not ready.
++current bindings, including the Plasma-style Super+Home, Super+PageUp/PageDown,
++Super+End and Super+Shift+PageUp/PageDown media shortcuts. Session controls need
++playerctl, wpctl (WirePlumber), brightnessctl, Flameshot and wm-launcher. Commands
++use direct argument vectors; no shell or separate hotkey daemon is involved.
++
++The coordinator's docs/session.md describes the X11 session, external tray,
++launcher, dependencies, coexistence with Plasma and integration status. dwm does
++not start the compositor, tray, network applet or screen locker itself. Synthetic
++tests do not establish hardware, visual or authentication correctness.
+ 
+ The upstream installation instructions below are retained for reference only;
+ they are not the activation procedure for this environment.
+diff --git a/dwm.1 b/dwm.1
+index 78d15d4..49f8bf9 100644
+--- a/dwm.1
++++ b/dwm.1
+@@ -10,7 +10,8 @@ Windows are focused by clicking, not by moving the pointer.
+ Keyboard placement affects only the focused window; it does not rearrange
+ other windows into a tiled layout.
+ .P
+-The status bar is disabled. Compact tray support belongs to a later wm block.
++The status bar is disabled. The wm session provides an external compact tray;
++dwm does not implement a tray or start session services itself.
+ Borders indicate focus. Applications may request activation through
+ _NET_ACTIVE_WINDOW; this permits external run-or-raise tools to focus windows.
+ .SH OPTIONS
+@@ -21,7 +22,8 @@ Print version information to stderr and exit.
+ Super is the Windows key (Mod4). Alt is Mod1.
+ .TP
+ .B Super\-Space
+-Run dmenu_run. The combined wm launcher is not implemented yet.
++Open wm-launcher: applications, file names and session actions through dmenu.
++Power and logout actions require confirmation in the launcher.
+ .TP
+ .B Super\-Return
+ Open, raise or cycle st windows through jumpapp.
+@@ -67,6 +69,37 @@ Focus the next or previous window in client-list order.
+ .B Control\-q, Alt\-F4
+ Request WM_DELETE_WINDOW on the focused window. The application handles
+ confirmation and unsaved data. Clients without this protocol are not killed.
++.TP
++.B Super\-Home, AudioPlay
++Toggle media playback through playerctl. AudioPause pauses; AudioStop stops.
++The default playerctl player selection applies, not only Spotify.
++.TP
++.B Super\-Shift\-PageUp, AudioPrev
++Previous track.
++.TP
++.B Super\-Shift\-PageDown, AudioNext
++Next track.
++.TP
++.B Super\-PageUp, AudioRaiseVolume
++Raise the default audio output volume by 5%, limited to 100%, through wpctl.
++.TP
++.B Super\-PageDown, AudioLowerVolume
++Lower the default audio output volume by 5%. Adjusting volume does not unmute.
++.TP
++.B Super\-End, AudioMute
++Toggle mute on the default audio output through wpctl.
++.TP
++.B MonBrightnessUp, MonBrightnessDown
++Adjust the first backlight device by 5% through brightnessctl, with a minimum
++hardware value of 1. Requires backlight permissions; no external monitor DDC
++support is configured.
++.TP
++.B Print
++Open the interactive Flameshot capture UI. No automatic save is requested.
++.TP
++.B Super\-l
++Run wm-launcher --action Bloquear. The session's xss-lock/i3lock integration
++must be running; the shortcut alone does not provide a screen locker.
+ .SH MOUSE
+ .TP
+ .B Button1

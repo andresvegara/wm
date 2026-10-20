@@ -32,8 +32,10 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | documentation | Manual and development notice for the complete configuration. |
 | launcherbinding | Personal binding to the combined external launcher. |
 | docks | Borderless, unfocusable EWMH docks with absolute configure coordinates. |
+| sessionkeys | Personal media, volume, brightness, screenshot and lock bindings. |
+| sessiondocs | Manual/README for the complete session shortcut configuration. |
 
-These are ordered patches, not eleven interchangeable standalone patches.
+These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
 integrates with placement state, center uses floating restoration, and monitor
 placement integrates with snap/fullscreen restoration and cross-monitor focus.
@@ -57,8 +59,11 @@ the profile and the wm-launcher runtime installed by the coordinator. docks
 allows the external tray to keep its requested corner geometry, stay above
 ordinary windows but below fullscreen, and stay out of focus/cycling. It depends
 on the earlier focus/fullscreen changes; it is not an XEmbed implementation.
+Sessionkeys follows the profile/launcherbinding and depends at runtime on
+playerctl, wpctl, brightnessctl, Flameshot and wm-launcher (see docs/session.md).
+Sessiondocs follows sessionkeys and changes only documentation.
 
-## st series (partial)
+## st series
 
 Base: `fdaadd5b1e1bc900769b3c38031c0a658e5cd4da` (0.9.3).
 Order is recorded in `st/series`:
