@@ -1,5 +1,3 @@
-# See ARCHITECTURE.md for scope and validation constraints.
-
 all:
 	@printf '%s\n' 'Use make test; installation and activation are not enabled.'
 

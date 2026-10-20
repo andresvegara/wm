@@ -1,8 +1,7 @@
 # wm
 
 Entorno X11 en desarrollo basado en dwm, dmenu y st. No está activado ni listo
-para sustituir Plasma. El contrato, los bloques y los límites están en
-[ARCHITECTURE.md](ARCHITECTURE.md).
+para sustituir Plasma.
 
 ## Estado
 
@@ -106,8 +105,8 @@ necesitar los historiales oficiales. Los tests admiten commits descendientes
 de cada raíz propia y exigen que importación + serie reproduzca exactamente
 las fuentes. Los nombres de los parches conservan el hash oficial únicamente
 para identificar su procedencia y compatibilidad.
-Consultar ARCHITECTURE.md para continuar: completar scrollback/reflow de st,
-después dmenu; bandeja y servicios de sesión siguen pendientes. No activar aún.
+Pendiente: completar scrollback/reflow de st, después dmenu; bandeja y servicios
+de sesión siguen pendientes. No activar aún.
 
 ## Seguridad de la sesión actual
 
