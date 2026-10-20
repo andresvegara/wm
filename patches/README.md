@@ -108,6 +108,8 @@ Order is recorded in `st/series`:
 | mousehistory | Mouse dispatch to history, with alternate-screen fallback. |
 | historybindings | Personal keyboard/wheel bindings, after mousehistory/reflow. |
 | historydocs | User documentation and provenance for terminal history. |
+| fontprimary | Personal profile: only Hack as primary, keeping per-glyph fallback. |
+| fontprimarydocs | Document primary-font selection and existing fallback. |
 
 Source artifacts are preserved unchanged in `upstream/st/`, with SHA256SUMS
 checked by make test. Sources and attribution:
@@ -129,6 +131,10 @@ The profile depends on alpha and blinkingcursor. Each recorded prefix is
 rebuilt, and the full frontend tests use Xlib/Xft substitutes plus UBSan.
 No real display, font discovery, compositor or terminal process is started.
 Fontconfig parsing tests a supplied family pattern, not installed-font coverage.
+Fontprimary follows the profile/history series and removes the explicit emoji
+family from primary matching: it could win Fontconfig matching and impose a
+large bitmap strike on all terminal cells. Existing per-glyph fallback remains
+unchanged. Fontprimarydocs follows fontprimary and only updates user documentation.
 
 The scrollback patch adapts [the community 0.9.2 patch](https://st.suckless.org/patches/scrollback/st-scrollback-0.9.2.diff)
 to this series, separately from bindings. It tracks valid history lines instead

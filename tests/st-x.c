@@ -198,9 +198,9 @@ testprofile(void)
 	assert(FcPatternGetString(pattern, FC_FAMILY, 0, &family)
 		== FcResultMatch);
 	assert(!strcmp((const char *)family, "Hack Nerd Font Mono"));
+	/* A primary emoji family can win matching and impose bitmap-sized cells. */
 	assert(FcPatternGetString(pattern, FC_FAMILY, 1, &family)
-		== FcResultMatch);
-	assert(!strcmp((const char *)family, "Noto Color Emoji"));
+		!= FcResultMatch);
 	assert(FcPatternGetDouble(pattern, FC_SIZE, 0, &size) == FcResultMatch);
 	assert(size == 11);
 	FcPatternDestroy(pattern);
