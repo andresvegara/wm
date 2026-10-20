@@ -28,9 +28,9 @@ def owns(name):
     return result.stdout.strip() == "(true,)"
 
 
-def start(children, argv, log, required=True):
+def start(children, argv, log, required=True, env=None):
     process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log,
-                               stderr=subprocess.STDOUT, start_new_session=True)
+                               stderr=subprocess.STDOUT, start_new_session=True, env=env)
     children.append((process, required))
     return process
 
@@ -88,7 +88,7 @@ def run():
         raise RuntimeError("selecciona la sesión dwm X11 en el gestor de acceso")
     if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
         raise RuntimeError("falta el bus de sesión; inicia desde SDDM")
-    for config in ("dunstrc", "picom.conf", "tint2rc"):
+    for config in ("dunstrc", "picom.conf", "tint2rc", "pulse-client.conf"):
         if not (DATA / config).is_file():
             raise RuntimeError("falta configuración de sesión: {}".format(DATA / config))
     if command(["wmctrl", "-m"], required=False).returncode == 0:
@@ -154,6 +154,9 @@ def run():
             previous, tray = monitors(previous, tray, children, log)
             bridge = start(children, ["snixembed"], log)
             ready(bridge, "org.kde.StatusNotifierWatcher")
+            start(children, ["cbatticon"], log, required=False)
+            start(children, ["pasystray", "--notify=none", "--volume-max=100"], log, required=False,
+                  env=dict(os.environ, PULSE_CLIENTCONFIG=str(DATA / "pulse-client.conf")))
             start(children, ["nm-applet"], log, required=False)
             start(children, ["copyq"], log, required=False)
             start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)

@@ -63,6 +63,8 @@ command	lxqt-policykit-agent	lxqt-policykit	/usr/bin/lxqt-policykit-agent
 command	autorandr	autorandr	/usr/bin/autorandr
 command	snixembed	snixembed	/usr/bin/snixembed
 command	tint2	tint2	/usr/bin/tint2
+command	cbatticon	cbatticon	/usr/bin/cbatticon
+command	pasystray	pasystray	/usr/bin/pasystray
 command	xrandr	xorg-xrandr	/usr/bin/xrandr
 command	setxkbmap	xorg-setxkbmap	/usr/bin/setxkbmap
 command	xset	xorg-xset	/usr/bin/xset

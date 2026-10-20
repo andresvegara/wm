@@ -109,13 +109,13 @@ integración de sesión. Los comandos de reproducción/volumen no justifican
 sustituir un gestor de audio existente ni activar servicios nuevos sin acuerdo.
 
 El inventario acordado para la sesión incluye Dunst, Picom, nm-applet,
-agente Polkit LXQt, CopyQ, tint2 y snixembed; GNOME Keyring/libsecret, GCR SSH
+agente Polkit LXQt, CopyQ, tint2, snixembed, cbatticon y pasystray; GNOME Keyring/libsecret, GCR SSH
 Agent y Seahorse; autorandr/xrandr para pantallas y herramientas de energía del sistema.
 El inventario completo está en `scripts/dependencies.tsv`: incluye los comandos
 del lanzador, libsecret y unidades de sistema/usuario necesarias. El instalador
 comprueba esas unidades además de los ejecutables. No se ejecuta el autostart
 XDG general de otros escritorios. Remmina y Flameshot quedan disponibles, sin
-arranque automático; no se añaden servicios de audio ni cbatticon.
+arranque automático; no se añaden servicios de audio.
 
 ## Instalación futura y SDDM
 
@@ -148,6 +148,23 @@ nunca por foco. No se necesitan Trayer ni Nitrogen; se mantiene un fondo liso
 claro (#f6f5f4) con xsetroot, sin wallpaper ni acción «Fondo». No es una bandeja
 implementada dentro de dwm. snixembed tiene soporte AppIndicator limitado;
 no se garantiza que todos los iconos de todas las aplicaciones sean compatibles.
+
+La bandeja incluye dos applets GTK3, arrancados después de tint2/snixembed:
+- **Batería (`cbatticon`)**: estado, porcentaje/estimación en el tooltip y avisos
+  propios (por defecto bajo 20%, crítico 5%). No se configuran comandos de clic,
+  nivel bajo o crítico: no suspende ni cambia la política de energía/tapa.
+- **Volumen (`pasystray`)**: rueda para volumen, clic central/Alt+clic para silencio
+  y menú para elegir salida/entrada. Límite 100%, notificaciones desactivadas y
+  sin capturar teclas multimedia (las conserva dwm). Usa el servidor Pulse
+  compatible existente, por ejemplo pipewire-pulse. Solo este hijo recibe
+  `PULSE_CLIENTCONFIG=/usr/local/share/wm/pulse-client.conf` con `autospawn = no`;
+  no se lanza/instala un servidor de audio ni se tocan preferencias de HOME.
+  Esto no deshabilita sockets o servicios ya configurados por el usuario.
+
+El supervisor arranca una instancia de cada applet y limpia sus grupos al salir;
+si terminan no cierra la sesión ni los relanza en bucle. Su visibilidad depende de
+la batería, servidor de audio y tema de iconos disponibles. Son clientes de
+bandeja, no módulos internos de tint2. Su presentación real queda por verificar.
 
 «Pantallas» abre `wm-displays`, un asistente de menús dmenu centrados. Permite
 activar/desactivar salidas, elegir resolución, frecuencia, rotación y principal,
@@ -248,6 +265,9 @@ requiere una fase posterior autorizada.
 - [Flameshot: interfaz de captura y opciones](https://flameshot.org/docs/advanced/commandline-options/)
 - [snixembed: alcance y soporte AppIndicator](https://man.archlinux.org/man/snixembed.1.en)
 - [tint2: bandeja, tamaño dinámico y monitor primario](https://man.archlinux.org/man/tint2.1.en)
+- [cbatticon: batería y comandos opcionales](https://github.com/valr/cbatticon)
+- [pasystray: controles y opciones](https://man.archlinux.org/man/pasystray.1.en)
+- [PulseAudio: configuración de clientes y autospawn](https://wiki.freedesktop.org/www/Software/PulseAudio/FAQ/)
 - [autorandr: perfiles y aplicación de configuraciones](https://github.com/phillipberndt/autorandr)
 - [xrandr: modos, posición y rotación](https://www.x.org/releases/current/doc/man/man1/xrandr.1.xhtml)
 - [xss-lock: bloqueo y suspensión](https://man.archlinux.org/man/xss-lock.1.en)

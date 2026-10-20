@@ -12,6 +12,8 @@ no se requieren Nitrogen, Trayer ni GTK2 para esas funciones.
 reversión en 15 segundos. Guarda automáticamente perfiles por combinación de
 monitores y los restaura al iniciar/conectar/desconectar, mediante xrandr y
 autorandr; no necesita el gestor de ajustes de otro escritorio.
+La bandeja incluye batería (cbatticon) y volumen (pasystray); usa el audio existente,
+sin añadir políticas de suspensión ni arrancar un servidor PulseAudio.
 
 ## Instalar con el script
 
@@ -71,6 +73,7 @@ sudo install -Dm755 scripts/wm-displays /usr/local/bin/wm-displays
 sudo install -Dm644 session/picom.conf /usr/local/share/wm/picom.conf
 sudo install -Dm644 session/dunstrc /usr/local/share/wm/dunstrc
 sudo install -Dm644 session/tint2rc /usr/local/share/wm/tint2rc
+sudo install -Dm644 session/pulse-client.conf /usr/local/share/wm/pulse-client.conf
 sudo install -Dm644 session/wm.desktop /usr/share/xsessions/wm.desktop
 sudo install -Dm644 session/wm-st.desktop /usr/local/share/applications/wm-st.desktop
 sudo install -Dm644 session/dwm-xdg-terminals.list /usr/local/share/xdg-terminal-exec/dwm-xdg-terminals.list
@@ -93,7 +96,7 @@ existente a ciegas: resolver el conflicto antes. El script es la vía recomendad
 | Binarios y entrada de sesión | `/usr/local/bin` |
 | Manuales | `/usr/local/share/man/man1` |
 | Terminfo generado por el script | `/usr/local/share/terminfo` |
-| Defaults de Dunst/Picom/tint2 | `/usr/local/share/wm` |
+| Defaults de Dunst/Picom/tint2 y cliente Pulse de pasystray | `/usr/local/share/wm` |
 | Sesión X11 para SDDM | `/usr/share/xsessions/wm.desktop` |
 | Entrada de st / selección de terminal | `/usr/local/share/applications`, `/usr/local/share/xdg-terminal-exec` |
 
