@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=wm
+Comment=Floating dwm X11 session
+Exec=/usr/local/bin/wm-session
+TryExec=/usr/local/bin/wm-session
+Type=Application
+DesktopNames=dwm
