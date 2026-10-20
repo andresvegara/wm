@@ -1,0 +1,32 @@
+diff --git a/x.c b/x.c
+index 8451096..68a472d 100644
+--- a/x.c
++++ b/x.c
+@@ -176,6 +176,7 @@ static void resize(XEvent *);
+ static void focus(XEvent *);
+ static uint buttonmask(uint);
+ static int mouseaction(XEvent *, uint);
++static void mousescroll(const Arg *);
+ static void brelease(XEvent *);
+ static void bpress(XEvent *);
+ static void bmotion(XEvent *);
+@@ -483,6 +484,19 @@ mouseaction(XEvent *e, uint release)
+ 	return 0;
+ }
+ 
++void
++mousescroll(const Arg *arg)
++{
++	Arg n = {.i = abs(arg->i)};
++
++	if (tisaltscreen())
++		ttysend(&(Arg){.s = arg->i > 0 ? "\031" : "\005"});
++	else if (arg->i > 0)
++		kscrollup(&n);
++	else
++		kscrolldown(&n);
++}
++
+ void
+ bpress(XEvent *e)
+ {
