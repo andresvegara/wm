@@ -1,181 +1,138 @@
 # wm
 
-Entorno X11 en desarrollo basado en dwm, dmenu y st. No está activado ni listo
-para sustituir Plasma.
+Sesión X11 independiente de Plasma basada en dwm, dmenu y st. Un escritorio,
+ventanas flotantes, foco por clic, mitades/cuartos, maximización, bandeja compacta,
+lanzador combinado, notificaciones, compositor y bloqueo. Apariencia clara
+Adwaita/Fusion solo en sus descendientes. No reemplaza ni desinstala Plasma.
 
-## Estado
+La [guía de sesión](docs/session.md) recoge atajos, componentes y límites.
 
-Preparados la estructura y la primera serie de dwm: flotante, un tag, foco por
-clic, mitades/cuartos, maximizar/restaurar, fullscreen, centrar, traslado entre
-monitores y cierre normal. `tests/dwm-core.c` prueba funciones reales con Xlib
-simulado; no abre un display.
+## Instalar con el script
 
-st incluye tamaño libre, transparencia, cursor parpadeante, perfil de Alacritty,
-historial de 2000 filas y reflow al redimensionar, con tests simulados y ASan/UBSan.
-Windows+Espacio abre el lanzador combinado de aplicaciones, archivos y acciones.
-Siguen pendientes la bandeja y los componentes completos de sesión. Configurar fuentes emoji no
-acredita todavía su renderizado. Hay avisos de funciones upstream sin uso tras
-retirar sus atajos, no una compilación libre de warnings.
+Desde esta carpeta, **como usuario normal**, sin anteponer sudo:
 
-## Organización
+```sh
+sh scripts/install.sh
+# Equivalente: make install
+```
 
-- `dwm/`, `dmenu/`, `st/`: repositorios propios independientes, ignorados aquí.
-- `sources.tsv`: proyecto, URL oficial, revisión oficial de procedencia,
-  commit raíz local de importación y árbol original (cinco campos TSV).
-- `checkouts.tsv`: destinos personales y HEAD locales del checkpoint.
-- `patches/`: diffs exportados y orden de aplicación por proyecto.
-- `scripts/`: exportador e instalador; `session/`: entorno local a dwm.
-- `tests/`: validación aislada, sin conectarse a X11, Wayland o D-Bus.
+- En Arch (`ID=arch`), usa `paru -S --needed` para dependencias ausentes,
+  incluidas las de AUR: revisar sus confirmaciones. No instala paru.
+  En otras distribuciones muestra recursos/rutas ausentes y aborta.
+- Obtiene por HTTPS los checkouts ausentes, en las revisiones de `checkouts.tsv`.
+  No reemplaza árboles existentes; construye sus archivos versionados actuales.
+- Construye los tres programas y prepara todos los archivos en temporales antes
+  de publicar. Rechaza enlaces en destinos y directorios padres.
+- Usa sudo solo para copias finales y para habilitar SDDM/NetworkManager en
+  próximos arranques. Detecta gestores competidores antes de copiar y no los
+  deshabilita. Nunca inicia/reinicia servicios ni selecciona sesión.
+- No escribe preferencias en HOME, no cambia Plasma, PAM ni políticas de tapa.
+  No inicia ni habilita servicios de audio.
+- Repetir actualiza solo archivos/permisos distintos. Un fallo durante copias o
+  habilitación puede dejar una instalación parcial: corregir y repetir.
+- `DESTDIR=/ruta/absoluta sh scripts/install.sh` empaqueta sin sudo ni habilitar
+  servicios. **No es un sandbox:** comprueba dependencias/servicios del host y en
+  Arch puede ejecutar paru. `WM_OS_RELEASE` y `WM_RESOURCE_ROOT` se reservan para
+  las simulaciones de tests; no usarlos en instalaciones normales.
 
-El directorio físico sigue siendo `/home/kafka/dwm`; su repositorio raíz es
-el coordinador. Cada checkout tiene un historial nuevo: un primer commit con
-el código original y después solo sus commits locales por funcionalidad. No
-hereda commits, ramas ni tags oficiales; conserva licencias y atribuciones.
-Los .git anteriores están respaldados localmente en .history-backups/ e
-ignorados por wm. El historial propio del coordinador no se reemplazó.
+Después, guardar el trabajo, cerrar Plasma y elegir **wm** en SDDM. Si SDDM o
+NetworkManager no estaban activos, reiniciar para usar los servicios habilitados.
+Para volver, cerrar wm y elegir **Plasma**. No lanzar wm encima de KWin.
 
-No hay submódulos. Clonar únicamente el coordinador no obtiene los tres
-proyectos. sources.tsv relaciona procedencia e importaciones locales;
-checkouts.tsv identifica los HEAD para retomar un checkpoint.
+## Instalar los programas individualmente
+
+Instalar previamente las dependencias de `scripts/dependencies.tsv` con el gestor
+de la distribución. Compilar como usuario y ejecutar solo la instalación con sudo:
+
+```sh
+make -C dwm  && sudo make -C dwm PREFIX=/usr/local install
+make -C dmenu && sudo make -C dmenu PREFIX=/usr/local install
+make -C st   && sudo make -C st PREFIX=/usr/local install
+```
+
+Cada línea es independiente. Estos comandos upstream instalan el programa y sus
+manuales; st también instala su terminfo. No instalan la sesión ni sus servicios.
+Para un build limpio tras cambios de configuración, ejecutar antes
+`make -C PROYECTO clean` y eliminar su `config.h` generado si se desea regenerarlo.
+
+Para instalar **también la sesión manualmente**, después de los tres programas:
+
+```sh
+sudo install -Dm755 session/wm-session /usr/local/bin/wm-session
+sudo install -Dm755 scripts/wm-supervisor /usr/local/bin/wm-supervisor
+sudo install -Dm755 scripts/wm-launcher /usr/local/bin/wm-launcher
+sudo install -Dm644 session/picom.conf /usr/local/share/wm/picom.conf
+sudo install -Dm644 session/dunstrc /usr/local/share/wm/dunstrc
+sudo install -Dm644 session/wm.desktop /usr/share/xsessions/wm.desktop
+sudo install -Dm644 session/wm-st.desktop /usr/local/share/applications/wm-st.desktop
+sudo install -Dm644 session/dwm-xdg-terminals.list /usr/local/share/xdg-terminal-exec/dwm-xdg-terminals.list
+```
+
+Solo si **no hay otro gestor de acceso/red activo o habilitado**, habilitar para
+próximos arranques (sin `--now`):
+
+```sh
+sudo systemctl enable sddm.service NetworkManager.service
+```
+
+La vía manual no tiene las protecciones del instalador. No deshabilitar un gestor
+existente a ciegas: resolver el conflicto antes. El script es la vía recomendada.
+
+## Destinos
+
+| Contenido | Destino |
+| --- | --- |
+| Binarios y entrada de sesión | `/usr/local/bin` |
+| Manuales | `/usr/local/share/man/man1` |
+| Terminfo generado por el script | `/usr/local/share/terminfo` |
+| Defaults de Dunst/Picom | `/usr/local/share/wm` |
+| Sesión X11 para SDDM | `/usr/share/xsessions/wm.desktop` |
+| Entrada de st / selección de terminal | `/usr/local/share/applications`, `/usr/local/share/xdg-terminal-exec` |
+
+`wm-session` aplica el entorno claro y terminfo a sus descendientes. No garantiza
+el tema de GTK2, apps con temas propios, procesos ya abiertos, sandboxes ni apps
+activadas por el bus fuera de ese árbol. st fuera de la sesión puede necesitar
+`TERMINFO_DIRS=/usr/local/share/terminfo:` si se instaló con el script.
 
 ## Validación
 
-```
+```sh
 make test
 ```
 
-Verifica que cada importación es la única raíz de su historial y conserva el
-árbol original, sin el commit oficial en el .git nuevo. Reconstruye las fuentes
-más los parches, compila cada prefijo de serie y comprueba que el resultado
-coincide con los checkouts. También prueba el exportador con cambios sintéticos.
-Los tres proyectos se compilan en temporales. Los tests usan HOME temporal y
-sin variables de sesión. El instalador se prueba con dependencias simuladas y
-staging temporal; también empaqueta dos veces fuentes reales y comprueba su
-idempotencia y terminfo. No instala en el sistema ni ejecuta programas gráficos.
+Reconstruye cada prefijo de parches y los tres programas en temporales. Prueba
+funciones reales dwm/st con Xlib simulado y ASan/UBSan, historial/reflow, bindings,
+lanzador, supervisor, agentes, monitores, bloqueo e instalador con comandos
+simulados. Empaqueta dos veces fuentes reales y comprueba idempotencia/terminfo.
+No instala ni arranca programas gráficos, X, servicios o hardware reales.
 
-Exportar una sola funcionalidad sobre la serie actual, sin crear commits:
+**No se ha validado una sesión gráfica real**, autenticación, monitores, emoji
+compuesto, secretos/VPN o audio. Persisten avisos upstream de funciones sin uso.
+Guardar el trabajo antes de la primera sesión; conservar Plasma como alternativa.
 
-```
-make patch PROJECT=dwm FEATURE=nombre-funcionalidad
-make test
-```
+## Fuentes y desarrollo
 
-El exportador no mezcla lo ya exportado ni sobrescribe parches existentes.
-Las dependencias y el flujo están en [patches/README.md](patches/README.md).
+- `dwm/`, `dmenu/`, `st/`: repositorios independientes del usuario, ignorados aquí.
+- `sources.tsv`: URL/revisión oficial de procedencia, importación local y árbol.
+- `checkouts.tsv`: URLs personales y revisiones fijadas.
+- [patches/README.md](patches/README.md): procedencia, dependencias y orden.
+- `scripts/dependencies.tsv`: inventario exacto de comandos, módulos y unidades.
 
-Los nuevos archivos de un checkout deben incorporarse deliberadamente al
-seguimiento de ese repositorio antes de exportarlos; el exportador rechaza
-archivos untracked para no omitirlos silenciosamente.
+Cada checkout tiene una raíz propia con el código original y sus licencias,
+seguida de commits locales por funcionalidad; no hereda historia oficial.
+No hay submódulos. Para desarrollar en otro equipo, obtener primero los checkouts
+fijados (las URLs GitHub admiten HTTPS) antes de `make test`, o usar el instalador
+para obtener los ausentes. El instalador no ejecuta la validación completa.
 
-## Instalador preparado
-
-Desde la raíz, como usuario normal (sin anteponer sudo):
+Exportar una funcionalidad, con configuración y documentación separadas:
 
 ```sh
-make install
-# Si todavía falta make:
-sh scripts/install.sh
+make patch PROJECT=dwm FEATURE=nombre
+make test
 ```
-
-**No se ha ejecutado la instalación real en esta fase.** El instalador prepara
-solo lo existente: dwm, dmenu y st; no completa los servicios pendientes ni
-registra o activa una sesión en el gestor de acceso.
-
-- Instala binarios en `/usr/local/bin`, manuales en `/usr/local/share/man/man1`
-  y terminfo en `/usr/local/share/terminfo`. Solo las copias finales usan sudo.
-- Comprueba herramientas, bibliotecas, fuentes y programas de los atajos actuales
-  (incluidos Brave, Chromium, Dolphin, Spotify y CopyQ). El inventario exacto
-  está en `scripts/dependencies.tsv`.
-- Solo con `ID=arch` instala dependencias ausentes mediante `paru -S --needed`,
-  con sus confirmaciones normales. Puede incluir paquetes AUR: revisarlos antes
-  de aceptarlos. No instala paru ni utiliza otro gestor. Fuera de Arch falla
-  mostrando las rutas ausentes, no nombres de paquetes.
-- Reconstruye copias temporales de los archivos versionados actuales; ignora
-  config.h/objetos antiguos y archivos no versionados. Todos los builds terminan
-  antes de publicar. No reescribe destinos con contenido/permisos correctos;
-  una nueva ejecución actualiza archivos cambiados y corrige permisos.
-- Un fallo de copia puede dejar una instalación parcial: corregir el error y
-  repetir. No hay rollback automático ni eliminación de archivos obsoletos.
-- `DESTDIR=/ruta/absoluta make install` prepara un árbol sin sudo. **No es un
-  sandbox:** las dependencias y paru siguen siendo los del host.
-
-El ejecutable instalado `wm-session` es el punto de entrada futuro de dwm:
-selecciona **GTK3/4 Adwaita claro y Qt generic/Fusion claro**, incluido Qt Quick,
-y añade el terminfo local a la búsqueda de ncurses conservando sus defaults.
-Su entorno solo se hereda a dwm y sus descendientes: no escribe preferencias,
-no cambia Plasma ni importa variables al bus. Iniciar dwm directamente no aplica
-este entorno; st fuera de él puede necesitar
-`TERMINFO_DIRS=/usr/local/share/terminfo:`.
-
-No se garantiza el tema de GTK2, apps con apariencia propia, procesos ya abiertos,
-sandboxes ni aplicaciones activadas por D-Bus fuera del árbol de dwm. No se ha
-validado el aspecto visual.
 
 Referencias: [paru](https://github.com/Morganamilo/paru),
-[GTK](https://wiki.archlinux.org/title/GTK), [Qt](https://wiki.archlinux.org/title/Qt)
-y [Fusion/Qt Quick](https://doc.qt.io/qt-6/qtquickcontrols-fusion.html).
-
-## Lanzador
-
-Windows+Espacio mezcla aplicaciones, nombres de archivos y acciones. GIO
-interpreta las entradas .desktop; las etiquetas nunca se ejecutan como shell.
-Las acciones de apagar/reiniciar/suspender/cerrar sesión requieren confirmación.
-Las aplicaciones de terminal usan xdg-terminal-exec, con st como default de dwm.
-
-El índice recorre HOME por nombres, sin leer contenido, ocultos, symlinks de
-directorio ni carpetas de dependencias/build. Se renueva al invocar si tiene más
-de 60 segundos; la primera búsqueda puede tardar en un HOME muy grande. Archivos
-borrados o convertidos en symlinks no se abren desde un resultado obsoleto.
-El índice está en `$XDG_CACHE_HOME/wm/files.json` (por defecto `~/.cache/wm`).
-Shift+PageUp/PageDown y la rueda recorren el historial de st; aplicaciones que
-solicitan eventos de ratón los conservan (Shift fuerza los atajos del terminal).
-
-## Publicación futura
-
-El coordinador wm tiene `origin` en `git@github.com:andresvegara/wm.git`.
-En los checkouts, `origin` apunta también al repositorio del usuario:
-
-- `dwm/`: `git@github.com:andresvegara/dwm.git`.
-- `dmenu/`: `git@github.com:andresvegara/dmenu.git`.
-- `st/`: `git@github.com:andresvegara/st.git`.
-
-El usuario autorizó commits y pushes autónomos, con commits de una línea en
-inglés y separados por funcionalidad. Los intentos de acceso SSH fueron
-rechazados y el usuario pidió pausar todo acceso remoto hasta arreglarlo.
-Por ahora los commits son exclusivamente locales; nada se considera publicado.
-No usar git am ni force-push.
-
-## Retomar en otro ordenador
-
-**El checkpoint aún no está publicado.** Los commits de dwm y st son locales
-mientras se resuelve SSH. dmenu solo tiene su commit propio de importación,
-sin cambios funcionales ni commits vacíos.
-Cuando se reanude el acceso, publicar primero los tres repositorios de fuentes
-sin force-push y después wm, para que sus revisiones ya sean accesibles.
-
-Después de publicar, clonar wm y, desde una copia nueva sin los checkouts:
-
-```sh
-set -eu
-tab=$(printf '\t')
-while IFS="$tab" read -r project url revision; do
-    git clone "$url" "$project"
-    git -C "$project" checkout --detach "$revision"
-done < checkouts.tsv
-make test
-```
-
-Las importaciones locales y los parches permiten reconstruir el código sin
-necesitar los historiales oficiales. Los tests admiten commits descendientes
-de cada raíz propia y exigen que importación + serie reproduzca exactamente
-las fuentes. Los nombres de los parches conservan el hash oficial únicamente
-para identificar su procedencia y compatibilidad.
-Pendiente: bandeja, servicios y registro de sesión. No activar aún.
-
-## Seguridad de la sesión actual
-
-No ejecutar `make install` dentro de los proyectos, ni arrancar sus binarios,
-compositores o servicios desde esta fase de desarrollo. No modificar la sesión
-actual de Plasma, el autostart, las credenciales ni la configuración de acceso.
-Las pruebas visuales, de energía, autenticación y hardware quedan para una fase
-posterior expresamente autorizada.
+[GTK](https://wiki.archlinux.org/title/GTK), [Qt](https://wiki.archlinux.org/title/Qt),
+[Fusion](https://doc.qt.io/qt-6/qtquickcontrols-fusion.html),
+[Git fetch](https://git-scm.com/docs/git-fetch) y
+[systemctl](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html).
