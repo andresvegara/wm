@@ -1,7 +1,7 @@
 # wm
 
 Sesión X11 independiente de Plasma basada en dwm, dmenu y st. Un escritorio,
-ventanas flotantes, foco por clic, mitades/cuartos, maximización, bandeja compacta,
+ventanas flotantes, foco siguiendo el cursor, mitades/cuartos, maximización, bandeja compacta,
 lanzador combinado, notificaciones, compositor y bloqueo. Apariencia clara
 Adwaita/Fusion solo en sus descendientes. No reemplaza ni desinstala Plasma.
 

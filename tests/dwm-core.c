@@ -463,13 +463,38 @@ testfocus(void)
 	other.mw = other.ww = 1000;
 	other.mh = other.wh = 800;
 	event.xcrossing.window = second.win;
-	event.xcrossing.mode = NotifyNormal;
+	event.xcrossing.mode = NotifyGrab;
 	enternotify(&event);
 	assert(monitor.sel == &first && selmon == &monitor);
+	event.xcrossing.mode = NotifyNormal;
+	event.xcrossing.detail = NotifyInferior;
+	enternotify(&event);
+	assert(monitor.sel == &first && selmon == &monitor);
+	event.xcrossing.detail = NotifyNonlinear;
+	enternotify(&event);
+	assert(monitor.sel == &second && focused == second.win);
+	assert(raised == None);
+	focus(&first);
+	second.isdock = 1;
+	enternotify(&event);
+	assert(monitor.sel == &first && focused == first.win);
+	second.isdock = 0;
 	event.xmotion.window = root;
 	event.xmotion.x_root = 100;
+	event.xmotion.y_root = 100;
 	motionnotify(&event);
-	assert(monitor.sel == &first && selmon == &monitor);
+	assert(selmon == &other && focused == root);
+	event.xmotion.window = first.win;
+	event.xmotion.x_root = -500;
+	motionnotify(&event);
+	assert(selmon == &other);
+	event.xcrossing.window = root;
+	event.xcrossing.mode = NotifyNormal;
+	event.xcrossing.x_root = -500;
+	event.xcrossing.y_root = 100;
+	enternotify(&event);
+	assert(selmon == &monitor && monitor.sel == &first);
+	expectgeom(-900, 100, 601, 401);
 	event.xbutton.window = second.win;
 	event.xbutton.button = Button1;
 	buttonpress(&event);
@@ -509,6 +534,16 @@ testcrossfocus(void)
 	assert(selmon == &other && other.sel == &third);
 	assert(ungrabs[first.win] && ungrabs[second.win]);
 	assert(ungrabs[third.win] && focused == third.win);
+	event.xcrossing.window = first.win;
+	event.xcrossing.mode = NotifyNormal;
+	event.xcrossing.detail = NotifyNonlinear;
+	enternotify(&event);
+	assert(selmon == &monitor && monitor.sel == &first && focused == first.win);
+	second.isdock = 1;
+	event.xcrossing.window = second.win;
+	enternotify(&event);
+	assert(selmon == &other && other.sel == &third && focused == third.win);
+	expectgeom(-900, 100, 601, 401);
 }
 
 static void
