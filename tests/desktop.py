@@ -16,6 +16,9 @@ def load(name):
 
 
 launcher = load("wm-launcher")
+notices = []
+original_report = launcher.report
+launcher.report = lambda name, message: notices.append((name, message))
 assert "Fondo" not in launcher.actions()
 assert launcher.actions()["Estado de energía"][0] == [
     "alacritty", "-e", "watch", "-n", "5", "upower", "--dump"]
@@ -62,6 +65,7 @@ class App:
     def launch(self, files, context):
         assert files == [] and context is None
         calls.append("app")
+        return True
 
 
 # A stale index is ignored, and neither HOME nor the cache is accessed.
@@ -109,14 +113,30 @@ def confirm(rows, prompt, monitor=None):
 
 launcher.choose = confirm
 launcher.execute_action("Apagar", "2")
-assert calls[0][0] == ["systemctl", "poweroff"]
+assert calls[0][0] == ["wm-run", "--", "systemctl", "poweroff"]
 calls.clear()
 launcher.execute_action("Pantallas", "2")
-assert calls[0][0] == ["wm-displays", "-m", "2"]
+assert calls[0][0] == ["wm-run", "--", "wm-displays", "-m", "2"]
 calls.clear()
 os.environ.pop("XDG_SESSION_ID", None)
 launcher.execute_action("Cerrar sesión")
-assert not calls
+assert not calls and notices[-1][0] == "Cerrar sesión"
+launcher.choose = lambda rows, prompt, monitor=None: next(row for row in rows if "[Aplicación]" in row)
+
+
+class BrokenApp(App):
+    def launch(self, files, context):
+        raise RuntimeError("synthetic GIO launch failure")
+
+
+launcher.apps = lambda: [BrokenApp()]
+launcher.run()
+assert notices[-1][0] == BrokenApp().get_display_name()
+assert "No se pudo iniciar" in notices[-1][1]
+subprocess.run = lambda argv, **kwargs: calls.append(argv)
+original_report("app", "synthetic message")
+assert calls[-1] == ["wm-run", "--error", "app", "synthetic message"]
+subprocess.run = original_run
 Path.home, os.walk, Path.open = original_home, original_walk, original_open
 assert index.read_text() == '{"paths": ["old-file"]}'
 subprocess.Popen = original_popen

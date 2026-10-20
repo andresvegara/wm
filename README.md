@@ -69,6 +69,7 @@ Para instalar **también la sesión manualmente**, después de los tres programa
 sudo install -Dm755 session/wm-session /usr/local/bin/wm-session
 sudo install -Dm755 scripts/wm-supervisor /usr/local/bin/wm-supervisor
 sudo install -Dm755 scripts/wm-launcher /usr/local/bin/wm-launcher
+sudo install -Dm755 scripts/wm-run /usr/local/bin/wm-run
 sudo install -Dm755 scripts/wm-displays /usr/local/bin/wm-displays
 sudo install -Dm644 session/picom.conf /usr/local/share/wm/picom.conf
 sudo install -Dm644 session/dunstrc /usr/local/share/wm/dunstrc

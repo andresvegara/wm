@@ -22,11 +22,11 @@ def binding(mod, key, function, *args):
 superkey, shift, alt, control = 64, 1, 8, 4
 for mod, key, argv in (
     (superkey, "XK_space", ("wm-launcher", "-m", "")),
-    (superkey, "XK_Return", ("jumpapp", "alacritty")),
-    (superkey, "XK_w", ("jumpapp", "brave")),
-    (superkey | shift, "XK_w", ("jumpapp", "chromium")),
-    (superkey, "XK_e", ("jumpapp", "-f", "thunar")),
-    (superkey | shift, "XK_m", ("jumpapp", "spotify")),
+    (superkey, "XK_Return", ("jumpapp", "-n", "alacritty")),
+    (superkey, "XK_w", ("jumpapp", "-n", "brave")),
+    (superkey | shift, "XK_w", ("jumpapp", "-n", "chromium")),
+    (superkey, "XK_e", ("jumpapp", "-n", "-f", "thunar")),
+    (superkey | shift, "XK_m", ("jumpapp", "-n", "spotify")),
     (superkey | shift, "XK_c", ("copyq", "show")),
 ):
     binding(mod, key, "spawn", *argv)

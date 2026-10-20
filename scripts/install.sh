@@ -251,6 +251,7 @@ for config in picom.conf dunstrc tint2rc pulse-client.conf; do
 	install -D -m 644 "$root/session/$config" "$stage/usr/local/share/wm/$config"
 done
 install -m 755 "$root/scripts/wm-launcher" "$stage/usr/local/bin/wm-launcher"
+install -m 755 "$root/scripts/wm-run" "$stage/usr/local/bin/wm-run"
 install -m 755 "$root/scripts/wm-displays" "$stage/usr/local/bin/wm-displays"
 install -D -m 644 "$root/session/wm.desktop" "$stage/usr/share/xsessions/wm.desktop"
 install -D -m 644 "$root/session/wm-st.desktop" "$stage/usr/local/share/applications/wm-st.desktop"
