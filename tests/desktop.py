@@ -1,5 +1,4 @@
 """Synthetic desktop integration checks; never connect to a display/bus."""
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -18,33 +17,16 @@ def load(name):
 
 launcher = load("wm-launcher")
 assert "Fondo" not in launcher.actions()
+assert launcher.actions()["Estado de energía"][0] == [
+    "alacritty", "-e", "watch", "-n", "5", "upower", "--dump"]
+assert (root / "session/dwm-xdg-terminals.list").read_text().splitlines() == [
+    "Alacritty.desktop", "wm-st.desktop"]
+assert "command\talacritty\talacritty\t/usr/bin/alacritty" in (
+    root / "scripts/dependencies.tsv").read_text()
 repository = types.ModuleType("gi.repository")
 repository.GLib = types.SimpleNamespace(Error=RuntimeError)
 sys.modules["gi"] = types.ModuleType("gi")
 sys.modules["gi.repository"] = repository
-home = temporary / "launcher-home"
-cache = temporary / "launcher-cache"
-home.mkdir()
-for name in ("normal", "español 😀", "$(touch never);\nnew", "-option", ".hidden"):
-    (home / name).write_text("synthetic")
-for directory in (".cache", "node_modules", "vendor", "visible"):
-    (home / directory).mkdir()
-    (home / directory / "entry").write_text("synthetic")
-(home / "link").symlink_to(home / "visible", target_is_directory=True)
-paths = launcher.indexed_files(home, cache)
-assert set(paths) == {"normal", "español 😀", "$(touch never);\nnew", "-option", "visible/entry"}
-assert (cache / "files.json").stat().st_mode & 0o777 == 0o600
-(home / "new-file").touch()
-assert "new-file" not in launcher.indexed_files(home, cache)
-data = json.loads((cache / "files.json").read_text())
-data["time"] = 0
-(cache / "files.json").write_text(json.dumps(data))
-assert "new-file" in launcher.indexed_files(home, cache)
-# Cache cannot smuggle absolute paths or traversals into the file menu.
-data["time"] = launcher.time.time()
-data["paths"] = ["../../not-home"]
-(cache / "files.json").write_text(json.dumps(data))
-assert "../../not-home" not in launcher.indexed_files(home, cache)
 assert "\n" not in launcher.label("new\nline\udcff")
 
 calls = []
@@ -54,39 +36,60 @@ subprocess.run = lambda argv, **kw: types.SimpleNamespace(returncode=0, stdout="
 assert launcher.choose({"legitimate": None}, "test") is None
 subprocess.run = lambda argv, **kw: types.SimpleNamespace(returncode=1, stdout="legitimate\n")
 assert launcher.choose({"legitimate": None}, "test") is None
+menu_calls = []
+
+
+def menu_run(argv, **kwargs):
+    menu_calls.append(argv)
+    assert "-c" in argv
+    assert argv[argv.index("-m") + 1] == "2"
+    return types.SimpleNamespace(returncode=0, stdout="legitimate\n")
+
+
+subprocess.run = menu_run
+assert launcher.choose({"legitimate": None}, "test", "2") == "legitimate"
+assert menu_calls
 subprocess.run = original_run
 
 
 class App:
     def get_display_name(self):
-        return "Duplicate\nname"
+        return "Duplicate\nname $(touch never)"
 
     def launch(self, files, context):
         assert files == [] and context is None
         calls.append("app")
 
 
-original_home = Path.home
-Path.home = lambda: home
-os.environ["XDG_CACHE_HOME"] = str(cache.parent / "menu-cache")
+# A stale index is ignored, and neither HOME nor the cache is accessed.
+cache = temporary / "old-cache"
+cache.mkdir()
+index = cache / "files.json"
+index.write_text('{"paths": ["old-file"]}')
+os.environ["XDG_CACHE_HOME"] = str(cache.parent)
+original_home, original_walk, original_open = Path.home, os.walk, Path.open
+
+
+def no_files(*args, **kwargs):
+    raise AssertionError("launcher accessed HOME, files or cache")
+
+
+Path.home = no_files
+os.walk = no_files
+Path.open = no_files
 launcher.apps = lambda: [App(), App()]
 launcher.sys.argv = ["wm-launcher"]
 actual_choose = launcher.choose
 
 
-def select_file(rows, prompt, monitor=None):
+def select_app(rows, prompt, monitor=None):
+    assert len(rows) == 2 + len(launcher.actions())
     assert len(rows) == len(set(rows))
-    assert all("\n" not in row for row in rows)
-    return next(row for row in rows if "$(touch never)" in row)
+    assert all("\n" not in row and "[Archivo]" not in row for row in rows)
+    return next(row for row in rows if "[Aplicación]" in row)
 
 
-launcher.choose = select_file
-launcher.run()
-assert len(calls) == 1 and calls[0][0][0:2] == ["gio", "open"]
-assert "%0A" in calls[0][0][2] and calls[0][1] == {"start_new_session": True}
-assert not (home / "never").exists()
-calls.clear()
-launcher.choose = lambda rows, prompt, monitor=None: next(row for row in rows if "[Aplicación]" in row)
+launcher.choose = select_app
 launcher.run()
 assert calls == ["app"]
 calls.clear()
@@ -96,14 +99,20 @@ assert not calls
 launcher.choose = lambda rows, prompt, monitor=None: "Cancelar"
 launcher.execute_action("Apagar")
 assert not calls
-launcher.choose = lambda rows, prompt, monitor=None: "Confirmar"
-launcher.execute_action("Apagar")
+def confirm(rows, prompt, monitor=None):
+    assert monitor == "2"
+    return "Confirmar"
+
+
+launcher.choose = confirm
+launcher.execute_action("Apagar", "2")
 assert calls[0][0] == ["systemctl", "poweroff"]
 calls.clear()
 os.environ.pop("XDG_SESSION_ID", None)
 launcher.execute_action("Cerrar sesión")
 assert not calls
-Path.home = original_home
+Path.home, os.walk, Path.open = original_home, original_walk, original_open
+assert index.read_text() == '{"paths": ["old-file"]}'
 subprocess.Popen = original_popen
 launcher.choose = actual_choose
-print("PASS: dynamic file index, hostile names, exact menu mapping, GIO launch and action confirmation")
+print("PASS: apps/actions only, no HOME/index access, exact mapping, GIO launch and confirmations")

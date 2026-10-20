@@ -1,0 +1,13 @@
+diff --git a/dwm.1 b/dwm.1
+index 49f8bf9..5e5be41 100644
+--- a/dwm.1
++++ b/dwm.1
+@@ -26,7 +26,7 @@ Open wm-launcher: applications, file names and session actions through dmenu.
+ Power and logout actions require confirmation in the launcher.
+ .TP
+ .B Super\-Return
+-Open, raise or cycle st windows through jumpapp.
++Open, raise or cycle Alacritty windows through jumpapp.
+ .TP
+ .B Super\-w
+ Open, raise or cycle Brave windows through jumpapp.

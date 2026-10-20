@@ -108,6 +108,11 @@ cc -std=c99 -pedantic -Wall -fsanitize=address,undefined \
     -fno-sanitize-recover=all -D_XOPEN_SOURCE=600 -I"$tmp/st" \
     "$root/tests/st-core.c" -o "$tmp/st-core-test" -lm -lutil
 ASAN_OPTIONS=detect_leaks=0 "$tmp/st-core-test"
+cc -std=c99 -pedantic -Wall -D_DEFAULT_SOURCE -DVERSION=\"5.4\" -DXINERAMA \
+    -fsanitize=undefined -fno-sanitize-recover=all -ffunction-sections -fdata-sections \
+    -I"$tmp/dmenu" $(pkg-config --cflags x11 xft xinerama) \
+    "$root/tests/dmenu-center.c" -Wl,--gc-sections -o "$tmp/dmenu-center-test"
+"$tmp/dmenu-center-test"
 sh "$root/tests/export-patches.sh" "$root" "$tmp"
 sh "$root/tests/install.sh" "$root" "$tmp"
 python3 "$root/tests/desktop.py" "$root" "$tmp"

@@ -25,6 +25,7 @@ command	sed	sed	/usr/bin/sed
 command	grep	grep	/usr/bin/grep
 command	bash	bash	/usr/bin/bash
 command	jumpapp	jumpapp	/usr/bin/jumpapp
+command	alacritty	alacritty	/usr/bin/alacritty
 command	wmctrl	wmctrl	/usr/bin/wmctrl
 command	xprop	xorg-xprop	/usr/bin/xprop
 command	xdotool	xdotool	/usr/bin/xdotool
