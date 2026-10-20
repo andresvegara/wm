@@ -48,6 +48,8 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | launcherrors | Route spawned commands through wm-run, with missing-helper fallback. |
 | launchprofile | Personal jumpapp -n bindings for observable startup. |
 | launchdocs | Document visible startup failures and limits. |
+| osdprofile | Personal volume/brightness bindings to wm-control. |
+| osddocs | Document real-state OSD feedback and unchanged control limits. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -76,6 +78,10 @@ on the earlier focus/fullscreen changes; it is not an XEmbed implementation.
 Sessionkeys follows the profile/launcherbinding and depends at runtime on
 playerctl, wpctl, brightnessctl, Flameshot and wm-launcher (see docs/session.md).
 Sessiondocs follows sessionkeys and changes only documentation.
+Osdprofile follows launchprofile and depends at runtime on the coordinator's
+wm-control, wpctl, brightnessctl and notify-send/Dunst; it does not add another
+key-grabbing daemon or audio backend. Osddocs follows it. Tests verify every
+compiled binding and mock all control queries/changes and notifications.
 Launcherrors depends at runtime on the coordinator's wm-run helper. It preserves
 spawn argv/setsid and falls back to xmessage if that helper cannot execute.
 Launchprofile follows it and uses jumpapp -n, retaining focus/cycle for existing
