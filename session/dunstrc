@@ -1,0 +1,22 @@
+# https://dunst-project.org/documentation/
+[global]
+    font = Hack Nerd Font Mono 11
+    frame_width = 1
+    frame_color = "#c0bfbc"
+    corner_radius = 4
+
+[urgency_low]
+    background = "#f6f5f4"
+    foreground = "#2e3436"
+    timeout = 5
+
+[urgency_normal]
+    background = "#f6f5f4"
+    foreground = "#2e3436"
+    timeout = 10
+
+[urgency_critical]
+    background = "#f6f5f4"
+    foreground = "#a51d2d"
+    frame_color = "#a51d2d"
+    timeout = 0
