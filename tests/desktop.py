@@ -17,6 +17,7 @@ def load(name):
 
 
 launcher = load("wm-launcher")
+assert "Fondo" not in launcher.actions()
 repository = types.ModuleType("gi.repository")
 repository.GLib = types.SimpleNamespace(Error=RuntimeError)
 sys.modules["gi"] = types.ModuleType("gi")

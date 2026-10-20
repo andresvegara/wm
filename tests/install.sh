@@ -514,8 +514,9 @@ unset MOCK_ALLOW_SUDO
 DESTDIR=$dest
 cp "$work/install.original" "$fixture/scripts/install.sh"
 [ -x "$dest/usr/local/bin/wm-supervisor" ] || fail 'supervisor not packaged'
-for config in dunstrc picom.conf; do
+for config in dunstrc picom.conf tint2rc; do
 	cmp "$fixture/session/$config" "$dest/usr/local/share/wm/$config" || fail 'session defaults'
+	[ "$(/usr/bin/stat -c %a "$dest/usr/local/share/wm/$config")" = 644 ] || fail 'session default mode'
 done
 
 # Test the wrapper's environment against a sibling fake supervisor, never X.

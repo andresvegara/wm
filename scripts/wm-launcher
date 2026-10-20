@@ -82,7 +82,6 @@ def choose(items, prompt, monitor=None):
 def actions():
     return {
         "Pantallas": (["lxqt-config-monitor"], False),
-        "Fondo": (["nitrogen"], False),
         "Red y VPN": (["nm-connection-editor"], False),
         "Contraseñas y claves SSH": (["seahorse"], False),
         "Sonido": (["pavucontrol"], False),

@@ -17,6 +17,19 @@ connected = "DP-1 connected primary 1920x1080+0+0\nHDMI-1 disconnected\n"
 secondary = "DP-1 connected 1920x1080+0+0\nHDMI-1 connected primary 1280x720+1920+0\n"
 geometry = "DP-1 connected primary 1280x720+0+0\nHDMI-1 disconnected\n"
 
+tray_config = dict(line.split(" = ", 1) for line in
+                   (module.DATA / "tint2rc").read_text().splitlines()
+                   if line and not line.startswith("#"))
+for key, value in {"panel_items": "S", "panel_monitor": "primary",
+                   "panel_position": "bottom right horizontal",
+                   "panel_size": "100% 24", "panel_shrink": "1",
+                   "panel_dock": "1", "strut_policy": "none",
+                   "systray_monitor": "primary", "systray_icon_size": "20"}.items():
+    assert tray_config[key] == value
+inventory = (root / "scripts/dependencies.tsv").read_text()
+assert "command\ttint2\ttint2\t/usr/bin/tint2\n" in inventory
+assert "nitrogen" not in inventory and "trayer" not in inventory
+
 
 class Process:
     def __init__(self, owner, argv):
@@ -93,8 +106,6 @@ class World:
             code = 1 if self.profile_failure else 0
         elif name == "xsetroot":
             assert argv == [name, "-solid", "#f6f5f4"]
-        elif name == "nitrogen":
-            assert argv == [name, "--restore"]
         elif name == "xset":
             assert argv == [name, "s", "600", "600"]
         else:
@@ -164,20 +175,24 @@ try:
     world = World()
     exercise(world)
     spawned = [p.args[0] for p in world.processes]
-    assert spawned[:-1] == ["dunst", "picom", "lxqt-policykit-agent", "trayer", "snixembed", "nm-applet", "copyq", "xss-lock"]
+    assert spawned[:-1] == ["dunst", "picom", "lxqt-policykit-agent", "tint2", "snixembed", "nm-applet", "copyq", "xss-lock"]
     assert spawned[-1].endswith("/dwm")
     assert world.processes[-1].environment["SSH_AUTH_SOCK"] == "/synthetic/foreign-agent"
     assert not any(c[0] == "systemctl" for c in world.calls)
     locker = next(p for p in world.processes if p.args[0] == "xss-lock")
     assert locker.args == ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"]
     assert ["xset", "s", "600", "600"] in world.calls
+    assert ["xsetroot", "-solid", "#f6f5f4"] in world.calls
+    assert next(p.args for p in world.processes if p.args[0] == "tint2") == [
+        "tint2", "-c", str(module.DATA / "tint2rc")]
     assert not any(c[0] in ("loginctl", "powerdevil", "pactl", "wpctl") for c in world.calls)
 
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         world = World()
         world.interrupt = sig
         exercise(world)
-    for field, value in (("dead", "lxqt-policykit-agent"), ("dead", "trayer"), ("fail_spawn", "nm-applet"),
+    for field, value in (("dead", "lxqt-policykit-agent"), ("dead", "tint2"),
+                         ("fail_spawn", "tint2"), ("fail_spawn", "nm-applet"),
                          ("fail_command", "xrandr"), ("wm_code", 2),
                          ("foreign", True), ("existing_wm", True)):
         world = World()
@@ -219,7 +234,20 @@ try:
             pass
     assert not world.processes
 
-    # Monitor focus does not enter this interface. Geometry restarts only trayer;
+    # Missing defaults fail before any commands or children, without touching sources.
+    data = module.DATA
+    module.DATA = temporary / "missing-tray-config"
+    module.DATA.mkdir()
+    for config in ("dunstrc", "picom.conf"):
+        (module.DATA / config).write_text("synthetic")
+    try:
+        world = World()
+        exercise(world, failure=True)
+        assert not world.calls and not world.processes
+    finally:
+        module.DATA = data
+
+    # Monitor focus does not enter this interface. Geometry restarts only tint2;
     # physical changes alone reapply profiles, including disconnect/reconnect.
     world = World()
     configure(world)
@@ -237,7 +265,15 @@ try:
         previous, tray = module.monitors(previous, tray, children, None)
     assert sum(c[0] == "lxqt-config-monitor" for c in world.calls) == 4
     assert len(children) == 1 and children[0][0] is tray
-    assert "primary" in tray.args and "right" in tray.args and "bottom" in tray.args
+    assert tray.args == ["tint2", "-c", str(module.DATA / "tint2rc")]
+    # A primary-only change also restarts the tray without reapplying profiles.
+    first = tray
+    restores = sum(c[0] == "lxqt-config-monitor" for c in world.calls)
+    world.randr = [secondary.replace("DP-1 connected ", "DP-1 connected primary ")
+                   .replace("HDMI-1 connected primary ", "HDMI-1 connected ")]
+    previous, tray = module.monitors(previous, tray, children, None)
+    assert tray is not first and first.pid in [pid for pid, sig in world.kills]
+    assert sum(c[0] == "lxqt-config-monitor" for c in world.calls) == restores
     # Failed restore is nonfatal and not retried for geometry-only events.
     world.profile_failure = True
     world.randr = [connected, geometry]
