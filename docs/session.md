@@ -28,7 +28,7 @@ foco por clic, no por pasar el ratón.
 | Super+Ñ | Centrar |
 | Super+Shift+izquierda/derecha | Mover a otro monitor |
 | Alt+Tab / Alt+Shift+Tab | Ventana siguiente/anterior |
-| Ctrl+Q / Alt+F4 | Pedir cierre normal; no matar aplicaciones sin WM_DELETE_WINDOW |
+| Super+Q / Ctrl+Q / Alt+F4 | Pedir cierre normal; no matar aplicaciones sin WM_DELETE_WINDOW |
 | Super+arrastrar con botón izquierdo/derecho | Mover/redimensionar |
 | Super+Inicio / tecla reproducir | Pausar/reanudar |
 | Tecla pausa / detener | Pausar / detener |
