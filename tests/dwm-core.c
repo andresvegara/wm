@@ -12,8 +12,8 @@ static Drw testdrw = { .fonts = &testfont };
 static Clr testcolors[3];
 static Clr *testscheme[] = { testcolors, testcolors };
 static int deleteprotocol, closeevents, replayevents, configureevents;
-static Window focused, raised;
-static Atom windowtype;
+static Window focused, raised, transient, mapped;
+static Atom windowtype, initialstate;
 static unsigned int lastborder;
 
 int
@@ -22,9 +22,11 @@ XGetWindowProperty(Display *display, Window w, Atom property, long offset,
 	unsigned long *count, unsigned long *remaining, unsigned char **data)
 {
 	*data = NULL;
-	if (property == netatom[NetWMWindowType] && windowtype) {
+	*count = 0;
+	if ((property == netatom[NetWMWindowType] && windowtype)
+	|| (property == netatom[NetWMState] && initialstate)) {
 		*data = malloc(sizeof(long));
-		*(long *)*data = windowtype;
+		*(long *)*data = property == netatom[NetWMWindowType] ? windowtype : initialstate;
 		*format = 32;
 		*count = 1;
 	}
@@ -59,7 +61,10 @@ int
 XConfigureWindow(Display *display, Window window, unsigned int mask,
 	XWindowChanges *changes)
 {
-	assert(changes->width > 0 && changes->height > 0);
+	if (mask & CWWidth)
+		assert(changes->width > 0);
+	if (mask & CWHeight)
+		assert(changes->height > 0);
 	configureevents++;
 	return 1;
 }
@@ -199,6 +204,38 @@ XKillClient(Display *display, XID resource)
 	return 0;
 }
 
+Status
+XGetTransientForHint(Display *display, Window window, Window *parent)
+{
+	*parent = transient;
+	return transient != None;
+}
+
+Status
+XGetWMNormalHints(Display *display, Window window, XSizeHints *hints, long *supplied)
+{
+	return 0;
+}
+
+Status
+XGetTextProperty(Display *display, Window window, XTextProperty *property, Atom atom)
+{
+	return 0;
+}
+
+int
+XSelectInput(Display *display, Window window, long mask)
+{
+	return 1;
+}
+
+int
+XMapWindow(Display *display, Window window)
+{
+	mapped = window;
+	return 1;
+}
+
 static void
 reset(void)
 {
@@ -233,7 +270,7 @@ reset(void)
 	sw = 4000;
 	sh = 2400;
 	deleteprotocol = closeevents = replayevents = configureevents = 0;
-	focused = raised = windowtype = None;
+	focused = raised = windowtype = transient = mapped = initialstate = None;
 	lastborder = 99;
 	memset(ungrabs, 0, sizeof ungrabs);
 	for (i = 0; i < NetLast; i++)
@@ -564,6 +601,73 @@ testdock(void)
 	assert(second.w == 50 && second.h == 24 && !second.bw);
 }
 
+static void
+testinitialcenter(void)
+{
+	XWindowAttributes attributes = { .x = -910, .y = 70, .width = 200, .height = 100 };
+	Client *client;
+	int x, y, mode;
+
+	reset();
+	manage(30, &attributes);
+	client = monitor.clients;
+	assert(client != &first && client->win == mapped && mapped == 30);
+	assert(client->x == -601 && client->y == 388);
+	assert(client->oldx == client->x && client->oldy == client->y);
+	assert(client->w == 200 && client->h == 100);
+	free(client);
+
+	reset();
+	other = monitor;
+	other.wx = other.mx = 2000;
+	other.wy = other.my = -100;
+	other.clients = other.stack = other.sel = NULL;
+	monitor.next = &other;
+	selmon = &other;
+	transient = first.win;
+	manage(30, &attributes);
+	client = monitor.clients;
+	assert(client->mon == &monitor && client->x == -601 && client->y == 388);
+	free(client);
+	monitor.clients = monitor.stack = monitor.sel = &first;
+	transient = None;
+	manage(31, &attributes);
+	client = other.clients;
+	assert(client->mon == &other && client->x == 2399 && client->y == 248);
+	free(client);
+
+	reset();
+	first.w = monitor.ww + 100;
+	first.h = monitor.wh + 100;
+	centerfloating(&first);
+	assert(first.x == monitor.wx && first.y == monitor.wy);
+	for (mode = 0; mode < 3; mode++) {
+		reset();
+		x = first.x;
+		y = first.y;
+		first.isfloating = mode != 0;
+		first.isdock = mode == 1;
+		first.isfullscreen = mode == 2;
+		centerfloating(&first);
+		assert(first.x == x && first.y == y);
+	}
+
+	reset();
+	windowtype = netatom[NetWMWindowTypeDock];
+	manage(30, &attributes);
+	client = monitor.clients;
+	assert(client->isdock && client->x == attributes.x && client->y == attributes.y);
+	free(client);
+
+	reset();
+	initialstate = netatom[NetWMFullscreen];
+	manage(30, &attributes);
+	client = monitor.clients;
+	assert(client->isfullscreen && client->x == monitor.mx && client->y == monitor.my);
+	assert(client->oldx == attributes.x && client->oldy == attributes.y);
+	free(client);
+}
+
 int
 main(void)
 {
@@ -577,6 +681,7 @@ main(void)
 	testcrossfocus();
 	testmonitors();
 	testdock();
-	puts("PASS: dwm configuration, placement, focus, close and monitor tests");
+	testinitialcenter();
+	puts("PASS: dwm configuration, placement, initial centering, focus, close and monitor tests");
 	return 0;
 }

@@ -41,6 +41,8 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | thunardocs | Manual update for Thunar and background-process handling. |
 | superclose | Personal Super+Q alias for the existing graceful close action. |
 | superclosedocs | Document Super+Q alongside Ctrl+Q and Alt+F4. |
+| centerfloating | Center newly managed floating clients, excluding docks/fullscreen. |
+| centerfloatingdocs | Document initial placement and assigned-monitor behavior. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -69,6 +71,11 @@ on the earlier focus/fullscreen changes; it is not an XEmbed implementation.
 Sessionkeys follows the profile/launcherbinding and depends at runtime on
 playerctl, wpctl, brightnessctl, Flameshot and wm-launcher (see docs/session.md).
 Sessiondocs follows sessionkeys and changes only documentation.
+Centerfloating follows the existing docks/fullscreen/monitor changes. It centers
+once during manage, using assigned-monitor usable coordinates and outer size;
+transients retain their parent's monitor. Oversized clients stay at the top-left,
+and docks/fullscreen retain placement. Centerfloatingdocs follows it. Tests call
+real manage with mock Xlib as well as the placement helper.
 Thunar follows the existing profile/session bindings; `jumpapp -f` still raises
 and cycles existing windows, but can open one when only a background process is
 running. It depends on the coordinator's `thunar` dependency. Thunardocs follows
