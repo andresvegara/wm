@@ -32,13 +32,13 @@ assert "nitrogen" not in inventory and "trayer" not in inventory
 
 
 class Process:
-    def __init__(self, owner, argv):
+    def __init__(self, owner, argv, env=None):
         self.owner, self.args = owner, argv
         self.pid = 900000 + len(owner.processes)
         self.returncode = None
         self.polls = 0
         self.waits = 0
-        self.environment = dict(os.environ)
+        self.environment = dict(os.environ if env is None else env)
         owner.processes.append(self)
 
     def poll(self):
@@ -117,7 +117,7 @@ class World:
         assert kwargs["stdin"] == subprocess.DEVNULL
         if argv[0] == self.fail_spawn:
             raise OSError("synthetic spawn failure")
-        return Process(self, argv)
+        return Process(self, argv, kwargs.get("env"))
 
     def kill(self, pid, sig):
         assert pid in [p.pid for p in self.processes], ("foreign process", pid)
@@ -175,12 +175,21 @@ try:
     world = World()
     exercise(world)
     spawned = [p.args[0] for p in world.processes]
-    assert spawned[:-2] == ["dunst", "picom", "lxqt-policykit-agent", "tint2", "snixembed", "nm-applet", "copyq", "xss-lock"]
+    assert spawned[:-2] == ["dunst", "picom", "lxqt-policykit-agent", "tint2", "snixembed", "cbatticon", "pasystray", "nm-applet", "copyq", "xss-lock"]
     assert spawned[-2].endswith("/dwm")
     assert spawned[-1].endswith("/wm-displays")
     assert world.processes[-1].args[1:] == ["--watch"]
     assert world.processes[-1].environment["SSH_AUTH_SOCK"] == "/synthetic/foreign-agent"
     assert "lxqt-config-monitor" not in inventory
+    battery = next(p for p in world.processes if p.args[0] == "cbatticon")
+    volume = next(p for p in world.processes if p.args[0] == "pasystray")
+    assert battery.args == ["cbatticon"]
+    assert volume.args == ["pasystray", "--notify=none", "--volume-max=100"]
+    assert volume.environment["PULSE_CLIENTCONFIG"] == str(module.DATA / "pulse-client.conf")
+    assert all("PULSE_CLIENTCONFIG" not in p.environment for p in world.processes if p is not volume)
+    assert "autospawn = no" in (module.DATA / "pulse-client.conf").read_text()
+    assert "command\tcbatticon\tcbatticon\t/usr/bin/cbatticon\n" in inventory
+    assert "command\tpasystray\tpasystray\t/usr/bin/pasystray\n" in inventory
     assert not any(c[0] == "systemctl" for c in world.calls)
     locker = next(p for p in world.processes if p.args[0] == "xss-lock")
     assert locker.args == ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"]
@@ -209,6 +218,15 @@ try:
         world = World()
         setattr(world, field, value)
         exercise(world, failure=True)
+    for name in ("cbatticon", "pasystray"):
+        world = World()
+        world.dead = name
+        exercise(world)
+        assert sum(p.args[0] == name for p in world.processes) == 1
+        world = World()
+        world.fail_spawn = name
+        exercise(world, failure=True)
+
     world = World()
     world.stubborn = True
     exercise(world)
@@ -250,6 +268,17 @@ try:
     module.DATA = temporary / "missing-tray-config"
     module.DATA.mkdir()
     for config in ("dunstrc", "picom.conf"):
+        (module.DATA / config).write_text("synthetic")
+    try:
+        world = World()
+        exercise(world, failure=True)
+        assert not world.calls and not world.processes
+    finally:
+        module.DATA = data
+
+    module.DATA = temporary / "missing-pulse-config"
+    module.DATA.mkdir()
+    for config in ("dunstrc", "picom.conf", "tint2rc"):
         (module.DATA / config).write_text("synthetic")
     try:
         world = World()

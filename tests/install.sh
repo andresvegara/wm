@@ -305,6 +305,8 @@ run || { /usr/bin/tail -50 "$work/output"; fail 'Arch install'; }
 grep -q 'paru -S --needed gcc libxft ttf-hack-nerd noto-fonts-emoji' "$MOCK_LOG" || fail 'wrong Arch packages'
 [ -x "$dest/usr/local/bin/st" ] || fail 'missing executable'
 [ -x "$dest/usr/local/bin/wm-displays" ] || fail 'missing display manager'
+cmp "$root/session/pulse-client.conf" "$dest/usr/local/share/wm/pulse-client.conf" || fail 'missing Pulse client default'
+[ "$(stat -c %a "$dest/usr/local/share/wm/pulse-client.conf")" = 644 ] || fail 'Pulse client default mode'
 cmp "$root/scripts/wm-displays" "$dest/usr/local/bin/wm-displays" || fail 'wrong display manager'
 [ -x "$dest/usr/local/bin/wm-session" ] || fail 'missing session wrapper'
 [ "$(stat -c %a "$dest/usr/share/xsessions/wm.desktop")" = 644 ] || fail 'session desktop mode'
