@@ -13,9 +13,9 @@ import time
 DATA = Path(__file__).resolve().parent.parent / "share" / "wm"
 
 
-def command(argv, required=True):
+def command(argv, required=True, timeout=20):
     result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True, timeout=20)
+                            text=True, timeout=timeout)
     if required and result.returncode:
         raise RuntimeError("falló {} (código {})".format(argv[0], result.returncode))
     return result
@@ -58,29 +58,16 @@ def ready(process, name):
     raise RuntimeError("no inició {}".format(name))
 
 
-def outputs(text):
-    physical, geometry = [], []
-    for line in text.splitlines():
-        match = re.match(r"^(\S+) (connected|disconnected)\b", line)
-        if match:
-            physical.append(match.groups())
-            if match[2] == "connected":
-                geometry.append(line)
-    if not physical:
-        raise RuntimeError("xrandr no devolvió salidas")
-    return tuple(sorted(physical)), tuple(sorted(geometry))
-
-
-def monitors(previous, tray, children, log):
-    state = outputs(command(["xrandr", "--query"]).stdout)
-    if tray is not None and tray.poll() is not None:
-        raise RuntimeError("terminó la bandeja")
-    if tray is None or previous is None or state[1] != previous[1]:
-        if tray is not None:
-            stop(tray)
-            children[:] = [(p, critical) for p, critical in children if p is not tray]
-        tray = start(children, ["tint2", "-c", str(DATA / "tint2rc")], log)
-    return state, tray
+def readytray(process):
+    for attempt in range(50):
+        if process.poll() is not None:
+            break
+        result = command(["xprop", "-root", "_WM_SYSTRAY"], required=False, timeout=1)
+        match = re.fullmatch(r"_WM_SYSTRAY\(CARDINAL\) = (\d+), (\d+)\s*", result.stdout)
+        if result.returncode == 0 and match and int(match[1]) == process.pid and int(match[2]) > 0:
+            return
+        time.sleep(0.1)
+    raise RuntimeError("dwm no obtuvo su bandeja XEmbed")
 
 
 def run():
@@ -88,7 +75,7 @@ def run():
         raise RuntimeError("selecciona la sesión dwm X11 en el gestor de acceso")
     if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
         raise RuntimeError("falta el bus de sesión; inicia desde SDDM")
-    for config in ("dunstrc", "picom.conf", "tint2rc", "pulse-client.conf"):
+    for config in ("dunstrc", "picom.conf", "pulse-client.conf"):
         if not (DATA / config).is_file():
             raise RuntimeError("falta configuración de sesión: {}".format(DATA / config))
     if command(["wmctrl", "-m"], required=False).returncode == 0:
@@ -117,7 +104,6 @@ def run():
         log = logfile.open("w")
         os.chmod(log.name, 0o600)
         children = []
-        previous, tray = None, None
         interrupted = False
 
         def interrupt(signum, frame):
@@ -146,12 +132,14 @@ def run():
                 else:
                     raise RuntimeError("no apareció el socket GCR de esta sesión")
                 os.environ["SSH_AUTH_SOCK"] = str(agent)
-            command(["xsetroot", "-solid", "#f6f5f4"])
+            command(["xsetroot", "-solid", "#f6f5f4", "-name",
+                     time.strftime("%Y-%m-%d %H:%M:%S")])
+            wm = start(children, [str(Path(__file__).resolve().parent / "dwm")], log, required=False)
+            readytray(wm)
             notification = start(children, ["dunst", "-conf", str(DATA / "dunstrc")], log)
             ready(notification, "org.freedesktop.Notifications")
             start(children, ["picom", "--config", str(DATA / "picom.conf")], log, required=False)
             start(children, ["lxqt-policykit-agent"], log)
-            previous, tray = monitors(previous, tray, children, log)
             bridge = start(children, ["snixembed"], log)
             ready(bridge, "org.kde.StatusNotifierWatcher")
             start(children, ["cbatticon"], log, required=False)
@@ -161,14 +149,13 @@ def run():
             start(children, ["copyq"], log, required=False)
             start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)
             command(["xset", "s", "600", "600"])
-            wm = start(children, [str(Path(__file__).resolve().parent / "dwm")], log, required=False)
             start(children, [str(Path(__file__).resolve().parent / "wm-displays"), "--watch"], log)
             while wm.poll() is None and not interrupted:
                 for process, required in children:
-                    if required and process is not tray and process.poll() is not None:
+                    if required and process.poll() is not None:
                         raise RuntimeError("terminó un componente necesario: {}".format(process.args[0]))
-                previous, tray = monitors(previous, tray, children, log)
-                time.sleep(2)
+                command(["xsetroot", "-name", time.strftime("%Y-%m-%d %H:%M:%S")])
+                time.sleep(1)
             if not interrupted and wm.returncode:
                 raise RuntimeError("dwm terminó con código {}".format(wm.returncode))
         finally:

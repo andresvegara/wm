@@ -15,7 +15,7 @@ git am. Official revision identifiers describe provenance, not Git ancestry.
 
 ## dwm series
 
-Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
+Filenames use `dwm-<feature>-YYYYMMDD-bca7cf2.diff`. The order is:
 
 | Feature | Scope |
 | --- | --- |
@@ -53,6 +53,9 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | windowsetups | Per-client geometry history and private display-transition protocol. |
 | windowsetupnoop | Do not leave a no-op root configure event pending. |
 | windowsetupdocs | Document in-memory history, exclusions and limits. |
+| systray | Native XEmbed tray, primary RandR status placement and bar stacking. |
+| barprofile | Personal config: show the existing bottom bar on every monitor. |
+| systraydocs | Document the native bar, bridge, clock and ownership handshake. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -72,8 +75,8 @@ The activation behavior matches the community
 [focusonnetactive](https://dwm.suckless.org/patches/focusonnetactive/) feature,
 whose page credits Danny O'Brien. Its original 6.2 diff was not applied; this
 version integrates the behavior with the recorded base and tests across
-monitors. No systray patch has been applied: the session uses tint2 and
-snixembed instead of duplicating tray services in dwm. launcherbinding depends on
+monitors. The later systray adaptation replaces the external tint2 panel;
+snixembed is still needed for SNI/AppIndicator icons. launcherbinding depends on
 the profile and the wm-launcher runtime installed by the coordinator. docks
 allows the external tray to keep its requested corner geometry, stay above
 ordinary windows but below fullscreen, and stay out of focus/cycling. It depends
@@ -113,6 +116,43 @@ Thunar follows the existing profile/session bindings; `jumpapp -f` still raises
 and cycles existing windows, but can open one when only a background process is
 running. It depends on the coordinator's `thunar` dependency. Thunardocs follows
 thunar and only updates the manual. No file associations or Plasma defaults change.
+
+### Native tray adaptation
+
+Systray follows windowsetupdocs and reconciles the existing docks, focus,
+placement, fullscreen and geometry-history code. It adds `systray.c`, included
+by dwm.c, and the libXrandr build dependency; Makefile tracks the include and
+ships it in source distributions. Barprofile and systraydocs follow separately.
+It does not require barpadding, status2d, statuscmd or another panel.
+
+The inspected source is [dwm-systray-20260516-44dbc68.diff](https://dwm.suckless.org/patches/systray/dwm-systray-20260516-44dbc68.diff),
+by Bakkeby; the [community page](https://dwm.suckless.org/patches/systray/) credits
+Jan Christoph Ebersbach, Eon S. Jeon, David Phillips, Eric Pruitt, Igor Gevka,
+Michel Boaventura, Hritik Vijay, Markus Hanetzok and Aleksei Kozadaev across
+versions. The unchanged artifact and SHA256SUMS are retained in `upstream/dwm/`.
+Original dwm licensing/attributions remain unchanged. This is an adaptation,
+not an unchanged upstream patch or an independent upstream implementation.
+
+The original acquires the X11 tray selection, advertises MANAGER, reparents
+XEmbed windows, handles their properties/resize/destruction and reserves bar
+space. Its default follows the selected monitor. This version instead:
+
+- embeds the tray as a child of the primary monitor's bar (first-monitor
+  fallback), without shrinking/restarting a separate root panel;
+- uses native RandR events, including primary-only changes, and preserves
+  the coordinator's display-transition/window-history protocol;
+- separates icons from normal Client objects and retains existing close/focus
+  semantics and personal bindings (the original also changes those interfaces);
+- honors zero/hidden XEmbed flags, bounds invalid/extreme sizes, clips overflow,
+  rejects duplicate/invalid docking and handles failed/lost selection safely;
+- never steals an existing selection; the private `_WM_SYSTRAY` root CARDINAL
+  pair (dwm PID, tray window) lets the supervisor verify its own tray is ready;
+- keeps ordinary windows under the bar, fullscreen above it, and restores icons
+  to the root/save-set on cleanup. No native SNI implementation is added.
+
+Tests exercise real tray/event functions with synthetic Xlib/RandR state under
+ASan/UBSan, plus mocked supervisor readiness/clock and installer packaging in
+`make test`. They do not establish graphical compatibility of real applets.
 
 ## dmenu series
 

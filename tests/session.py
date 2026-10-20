@@ -14,28 +14,10 @@ module = types.ModuleType("supervisor")
 module.__file__ = str(root / "scripts/wm-supervisor")
 exec(compile(Path(module.__file__).read_text(), module.__file__, "exec"), module.__dict__)
 module.DATA = root / "session"
-connected = "DP-1 connected primary 1920x1080+0+0\nHDMI-1 disconnected\n"
-secondary = "DP-1 connected 1920x1080+0+0\nHDMI-1 connected primary 1280x720+1920+0\n"
-geometry = "DP-1 connected primary 1280x720+0+0\nHDMI-1 disconnected\n"
-
-tray_config = dict(line.split(" = ", 1) for line in
-                   (module.DATA / "tint2rc").read_text().splitlines()
-                   if line and not line.startswith("#"))
-for key, value in {"panel_items": "SC", "panel_monitor": "primary",
-                   "panel_position": "bottom right horizontal",
-                   "panel_size": "100% 24", "panel_shrink": "1",
-                   "panel_dock": "1", "strut_policy": "none",
-                   "systray_monitor": "primary", "systray_icon_size": "20"}.items():
-    assert tray_config[key] == value
-assert tray_config["time1_format"] == "%Y-%m-%d %H:%M:%S"
-assert tray_config["time1_font"] == "Hack Nerd Font Mono 10"
-assert tray_config["clock_font_color"] == "#2d2d2d 100"
-assert tray_config["clock_padding"] == "6 0" and tray_config["clock_background_id"] == "0"
-assert "time2_format" not in tray_config and "time1_timezone" not in tray_config
-assert datetime(2026, 10, 20, 3, 4, 5).strftime(tray_config["time1_format"]) == "2026-10-20 03:04:05"
-assert datetime(2026, 10, 20, 23, 59, 59).strftime(tray_config["time1_format"]) == "2026-10-20 23:59:59"
+clockvalue = datetime(2026, 10, 20, 3, 4, 5)
 inventory = (root / "scripts/dependencies.tsv").read_text()
-assert "command\ttint2\ttint2\t/usr/bin/tint2\n" in inventory
+assert "tint2" not in inventory and not (module.DATA / "tint2rc").exists()
+assert "pc\txrandr\tlibxrandr\txrandr.pc\n" in inventory
 assert "nitrogen" not in inventory and "trayer" not in inventory
 
 
@@ -52,7 +34,7 @@ class Process:
     def poll(self):
         if self.args[0].endswith("/dwm"):
             self.polls += 1
-            if self.polls > 2:
+            if self.polls > self.owner.wm_lifetime:
                 self.returncode = self.owner.wm_code
         elif self.args[0] == self.owner.dead:
             self.returncode = 3
@@ -76,11 +58,15 @@ class World:
         self.no_agent = self.no_secrets = False
         self.wm_code = 0
         self.interrupt = None
-        self.randr = [connected]
+        self.tray_output = None
+        self.tray_timeout = False
+        self.tray_code = 0
+        self.wm_lifetime = 2
+        self.sleeps = []
 
     def run(self, argv, **kwargs):
         self.calls.append(argv)
-        assert kwargs.get("timeout") == 20
+        assert kwargs.get("timeout") == (1 if argv[0] == "xprop" else 20)
         name = argv[0]
         code, output = 0, ""
         if name == self.fail_command:
@@ -104,16 +90,21 @@ class World:
         elif name == "gnome-keyring-daemon":
             assert argv == [name, "--start", "--components=secrets"]
             self.secret = not self.no_secrets
-        elif name == "xrandr":
-            assert argv == [name, "--query"]
-            output = self.randr[0]
-            if len(self.randr) > 1:
-                self.randr.pop(0)
+        elif name == "xprop":
+            assert argv == [name, "-root", "_WM_SYSTRAY"]
+            if self.tray_timeout:
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            code = self.tray_code
+            wm = next(p for p in self.processes if p.args[0].endswith("/dwm"))
+            assert not any(p.args[0] == "snixembed" for p in self.processes)
+            output = self.tray_output if self.tray_output is not None else (
+                "_WM_SYSTRAY(CARDINAL) = {}, 50\n".format(wm.pid))
         elif name == "setxkbmap":
             assert argv == [name, "-layout", "es", "-variant", ""]
             assert not self.processes
         elif name == "xsetroot":
-            assert argv == [name, "-solid", "#f6f5f4"]
+            assert argv in ([name, "-solid", "#f6f5f4", "-name", clockvalue.strftime("%Y-%m-%d %H:%M:%S")],
+                            [name, "-name", clockvalue.strftime("%Y-%m-%d %H:%M:%S")])
         elif name == "xset":
             assert argv == [name, "s", "600", "600"]
         else:
@@ -132,7 +123,8 @@ class World:
         self.kills.append((pid, sig))
 
     def sleep(self, seconds):
-        if seconds == 2 and self.interrupt is not None:
+        self.sleeps.append(seconds)
+        if seconds == 1 and self.interrupt is not None:
             self.handlers[self.interrupt](self.interrupt, None)
 
     def signal(self, sig, handler):
@@ -142,7 +134,7 @@ class World:
 
 
 original = (subprocess.run, subprocess.Popen, os.killpg, signal.signal,
-            module.time.sleep, Path.is_socket)
+            module.time, Path.is_socket)
 environment = dict(os.environ)
 serial = 0
 
@@ -160,8 +152,10 @@ def configure(world):
                       XDG_SESSION_TYPE="x11", DBUS_SESSION_BUS_ADDRESS="mock:bus",
                       SSH_AUTH_SOCK="/synthetic/foreign-agent")
     subprocess.run, subprocess.Popen = world.run, world.popen
-    os.killpg, signal.signal, module.time.sleep = world.kill, world.signal, world.sleep
+    os.killpg, signal.signal = world.kill, world.signal
     Path.is_socket = lambda path: world.agent and path == runtime / "gcr/ssh"
+    module.time = types.SimpleNamespace(sleep=world.sleep,
+                                       strftime=lambda format: clockvalue.strftime(format))
     return runtime
 
 
@@ -172,7 +166,7 @@ def exercise(world, failure=False, setup=None):
     try:
         module.run()
         assert not failure, "expected session failure"
-    except (RuntimeError, OSError, KeyError):
+    except (RuntimeError, OSError, KeyError, subprocess.SubprocessError):
         assert failure, "unexpected session failure"
     assert {p.pid for p in world.processes} == {pid for pid, sig in world.kills}
     assert all(handler == signal.SIG_DFL for handler in world.handlers.values())
@@ -183,8 +177,10 @@ try:
     world = World()
     exercise(world)
     spawned = [p.args[0] for p in world.processes]
-    assert spawned[:-2] == ["dunst", "picom", "lxqt-policykit-agent", "tint2", "snixembed", "cbatticon", "pasystray", "nm-applet", "copyq", "xss-lock"]
-    assert spawned[-2].endswith("/dwm")
+    assert spawned[0].endswith("/dwm")
+    assert spawned[1:-1] == ["dunst", "picom", "lxqt-policykit-agent", "snixembed", "cbatticon", "pasystray", "nm-applet", "copyq", "xss-lock"]
+    assert any(call[0] == "xprop" for call in world.calls)
+    assert not any(call[0] == "xrandr" for call in world.calls)
     assert spawned[-1].endswith("/wm-displays")
     assert world.processes[-1].args[1:] == ["--watch"]
     assert world.processes[-1].environment["SSH_AUTH_SOCK"] == "/synthetic/foreign-agent"
@@ -202,10 +198,10 @@ try:
     locker = next(p for p in world.processes if p.args[0] == "xss-lock")
     assert locker.args == ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"]
     assert ["xset", "s", "600", "600"] in world.calls
-    assert ["xsetroot", "-solid", "#f6f5f4"] in world.calls
+    assert ["xsetroot", "-solid", "#f6f5f4", "-name", "2026-10-20 03:04:05"] in world.calls
+    assert ["xsetroot", "-name", "2026-10-20 03:04:05"] in world.calls
+    assert 1 in world.sleeps and 2 not in world.sleeps
     assert ["setxkbmap", "-layout", "es", "-variant", ""] in world.calls
-    assert next(p.args for p in world.processes if p.args[0] == "tint2") == [
-        "tint2", "-c", str(module.DATA / "tint2rc")]
     assert not any(c[0] in ("loginctl", "powerdevil", "pactl", "wpctl") for c in world.calls)
 
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
@@ -217,9 +213,9 @@ try:
     exercise(world, failure=True)
     assert not world.processes and not any(call[0] == "systemctl" for call in world.calls)
 
-    for field, value in (("dead", "lxqt-policykit-agent"), ("dead", "tint2"),
-                         ("fail_spawn", "tint2"), ("fail_spawn", "nm-applet"),
-                         ("fail_command", "xrandr"),
+    for field, value in (("dead", "lxqt-policykit-agent"),
+                         ("fail_spawn", str(root / "scripts/dwm")), ("fail_spawn", "nm-applet"),
+                         ("fail_command", "xprop"), ("fail_command", "xsetroot"),
                          ("dead", str(root / "scripts/wm-displays")),
                          ("fail_spawn", str(root / "scripts/wm-displays")), ("wm_code", 2),
                          ("foreign", True), ("existing_wm", True)):
@@ -273,7 +269,17 @@ try:
 
     # Missing defaults fail before any commands or children, without touching sources.
     data = module.DATA
-    module.DATA = temporary / "missing-tray-config"
+    module.DATA = temporary / "missing-picom-config"
+    module.DATA.mkdir()
+    (module.DATA / "dunstrc").write_text("synthetic")
+    try:
+        world = World()
+        exercise(world, failure=True)
+        assert not world.calls and not world.processes
+    finally:
+        module.DATA = data
+
+    module.DATA = temporary / "missing-pulse-config"
     module.DATA.mkdir()
     for config in ("dunstrc", "picom.conf"):
         (module.DATA / config).write_text("synthetic")
@@ -284,52 +290,37 @@ try:
     finally:
         module.DATA = data
 
-    module.DATA = temporary / "missing-pulse-config"
-    module.DATA.mkdir()
-    for config in ("dunstrc", "picom.conf", "tint2rc"):
-        (module.DATA / config).write_text("synthetic")
-    try:
+    # Stale, foreign and malformed readiness must never start tray applets.
+    for output in ("_WM_SYSTRAY: not found", "_WM_SYSTRAY(CARDINAL) = 1, 50",
+                   "_WM_SYSTRAY(CARDINAL) = 900000, 0", "_WM_SYSTRAY(STRING) = 900000, 50"):
         world = World()
+        world.tray_output = output
+        world.wm_lifetime = 1000
         exercise(world, failure=True)
-        assert not world.calls and not world.processes
-    finally:
-        module.DATA = data
-
-    # The display manager owns profiles; the supervisor only tracks tray geometry.
-    # Focus never enters this interface.
+        assert len(world.processes) == 1
+        assert sum(call[0] == "xprop" for call in world.calls) == 50
     world = World()
-    configure(world)
-    children = []
-    previous, tray = module.monitors(None, None, children, None)
-    first = tray
-    previous, tray = module.monitors(previous, tray, children, None)
-    assert tray is first
-    world.randr = [geometry]
-    previous, tray = module.monitors(previous, tray, children, None)
-    assert tray is not first and first.pid in [pid for pid, sig in world.kills]
-    assert all(c[0] == "xrandr" for c in world.calls)
-    for text in (secondary, connected, secondary):
-        world.randr = [text]
-        previous, tray = module.monitors(previous, tray, children, None)
-    assert all(c[0] == "xrandr" for c in world.calls)
-    assert len(children) == 1 and children[0][0] is tray
-    assert tray.args == ["tint2", "-c", str(module.DATA / "tint2rc")]
-    # A primary-only change also restarts the tray without reapplying profiles.
-    first = tray
-    world.randr = [secondary.replace("DP-1 connected ", "DP-1 connected primary ")
-                   .replace("HDMI-1 connected primary ", "HDMI-1 connected ")]
-    previous, tray = module.monitors(previous, tray, children, None)
-    assert tray is not first and first.pid in [pid for pid, sig in world.kills]
-    assert all(c[0] == "xrandr" for c in world.calls)
-    assert module.outputs(secondary)[0] != module.outputs(connected)[0]
-    try:
-        module.outputs("invalid synthetic output")
-        raise AssertionError("invalid RandR accepted")
-    except RuntimeError:
-        pass
-    print("PASS: session startup, DISPLAY lock, signals, cleanup, shared agents, monitors and locking (all commands mocked)")
+    world.tray_timeout = True
+    exercise(world, failure=True)
+    assert len(world.processes) == 1
+    world = World()
+    world.tray_code = 1
+    world.wm_lifetime = 1000
+    exercise(world, failure=True)
+    assert len(world.processes) == 1
+    # An early dwm exit stops readiness before starting any applets.
+    world = World()
+    world.tray_output = "not ready"
+    world.wm_lifetime = 0
+    exercise(world, failure=True)
+    assert len(world.processes) == 1 and not any(call[0] == "xprop" for call in world.calls)
+    clockvalue = datetime(2026, 10, 20, 23, 59, 59)
+    world = World()
+    exercise(world)
+    assert ["xsetroot", "-name", "2026-10-20 23:59:59"] in world.calls
+    print("PASS: native tray readiness, clock, startup, DISPLAY lock, cleanup and agents (all commands mocked)")
 finally:
     (subprocess.run, subprocess.Popen, os.killpg, signal.signal,
-     module.time.sleep, Path.is_socket) = original
+     module.time, Path.is_socket) = original
     os.environ.clear()
     os.environ.update(environment)

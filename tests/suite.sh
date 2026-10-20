@@ -94,9 +94,9 @@ fi
 cc -std=c99 -pedantic -Wall -Wno-deprecated-declarations \
     -fsanitize=address,undefined -fno-sanitize-recover=all \
     -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=700 -DVERSION=\"6.8\" -DXINERAMA \
-    -I"$tmp/dwm" $(pkg-config --cflags x11 xft xinerama) \
+    -I"$tmp/dwm" $(pkg-config --cflags x11 xft xinerama xrandr) \
     "$root/tests/dwm-core.c" "$tmp/dwm/drw.o" "$tmp/dwm/util.o" \
-    -o "$tmp/dwm-core-test" $(pkg-config --libs x11 xft xinerama) -lfontconfig
+    -o "$tmp/dwm-core-test" $(pkg-config --libs x11 xft xinerama xrandr) -lfontconfig
 mkdir "$tmp/spawn-bin"
 for tool in wm-run xmessage; do
 	printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$WM_SPAWN_LOG"\n' > "$tmp/spawn-bin/$tool"
