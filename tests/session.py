@@ -1,4 +1,5 @@
 """Exercise the supervisor with inert process/bus/clock/monitor doubles only."""
+from datetime import datetime
 import fcntl
 import hashlib
 import os
@@ -20,12 +21,19 @@ geometry = "DP-1 connected primary 1280x720+0+0\nHDMI-1 disconnected\n"
 tray_config = dict(line.split(" = ", 1) for line in
                    (module.DATA / "tint2rc").read_text().splitlines()
                    if line and not line.startswith("#"))
-for key, value in {"panel_items": "S", "panel_monitor": "primary",
+for key, value in {"panel_items": "SC", "panel_monitor": "primary",
                    "panel_position": "bottom right horizontal",
                    "panel_size": "100% 24", "panel_shrink": "1",
                    "panel_dock": "1", "strut_policy": "none",
                    "systray_monitor": "primary", "systray_icon_size": "20"}.items():
     assert tray_config[key] == value
+assert tray_config["time1_format"] == "%Y-%m-%d %H:%M:%S"
+assert tray_config["time1_font"] == "Hack Nerd Font Mono 10"
+assert tray_config["clock_font_color"] == "#2d2d2d 100"
+assert tray_config["clock_padding"] == "6 0" and tray_config["clock_background_id"] == "0"
+assert "time2_format" not in tray_config and "time1_timezone" not in tray_config
+assert datetime(2026, 10, 20, 3, 4, 5).strftime(tray_config["time1_format"]) == "2026-10-20 03:04:05"
+assert datetime(2026, 10, 20, 23, 59, 59).strftime(tray_config["time1_format"]) == "2026-10-20 23:59:59"
 inventory = (root / "scripts/dependencies.tsv").read_text()
 assert "command\ttint2\ttint2\t/usr/bin/tint2\n" in inventory
 assert "nitrogen" not in inventory and "trayer" not in inventory
