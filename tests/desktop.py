@@ -130,7 +130,11 @@ class BrokenApp(App):
 
 
 launcher.apps = lambda: [BrokenApp()]
-launcher.run()
+try:
+    launcher.run()
+    raise AssertionError("GIO failure returned success")
+except SystemExit as error:
+    assert error.code == 1
 assert notices[-1][0] == BrokenApp().get_display_name()
 assert "No se pudo iniciar" in notices[-1][1]
 subprocess.run = lambda argv, **kwargs: calls.append(argv)
