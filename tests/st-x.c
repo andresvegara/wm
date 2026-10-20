@@ -4,8 +4,20 @@
 #include <sys/wait.h>
 
 #define main st_main
+#define kscrollup testscrollup
+#define kscrolldown testscrolldown
+#define tisaltscreen testaltscreen
+#define ttywrite testttywrite
 #include "x.c"
 #undef main
+
+static int alt, up, down;
+static char sent;
+
+void testscrollup(const Arg *a) { up = a->i; }
+void testscrolldown(const Arg *a) { down = a->i; }
+int testaltscreen(void) { return alt; }
+void testttywrite(const char *s, size_t n, int echo) { assert(n == 1); sent = *s; }
 
 static XSizeHints hints;
 static Atom owned, converted;
@@ -247,6 +259,15 @@ testclipboard(void)
 int
 main(void)
 {
+	mousescroll(&(Arg){.i = 3});
+	assert(up == 3 && !down && !sent);
+	mousescroll(&(Arg){.i = -3});
+	assert(down == 3);
+	alt = 1;
+	mousescroll(&(Arg){.i = 3});
+	assert(sent == '\031');
+	mousescroll(&(Arg){.i = -3});
+	assert(sent == '\005');
 	testprofile();
 	testhints();
 	testclipboard();
