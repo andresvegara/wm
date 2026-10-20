@@ -49,6 +49,12 @@ check_dependencies()
 			command -v "$name" >/dev/null 2>&1 ||
 			    missing binario "$path (buscado en PATH=$PATH)"
 			;;
+		pygi)
+			if ! command -v python3 >/dev/null 2>&1 ||
+			    ! python3 -c 'import sys; assert sys.version_info >= (3, 9); import gi; gi.require_version("Gio", "2.0"); from gi.repository import Gio' 2>/dev/null; then
+				missing módulo "$path (requiere /usr/bin/python3 >= 3.9 y GIO)"
+			fi
+			;;
 		pc)
 			if ! command -v pkg-config >/dev/null 2>&1; then
 				missing recurso "/usr/lib/pkgconfig/$path (no se pudo consultar /usr/bin/pkg-config)"
@@ -125,6 +131,9 @@ for project in dwm dmenu st; do
 	done
 done
 install -m 755 "$root/session/wm-session" "$stage/usr/local/bin/wm-session"
+install -m 755 "$root/scripts/wm-launcher" "$stage/usr/local/bin/wm-launcher"
+install -D -m 644 "$root/session/wm-st.desktop" "$stage/usr/local/share/applications/wm-st.desktop"
+install -D -m 644 "$root/session/dwm-xdg-terminals.list" "$stage/usr/local/share/xdg-terminal-exec/dwm-xdg-terminals.list"
 tic -sx -o "$stage/usr/local/share/terminfo" "$tmp/st/st.info"
 
 find "$stage" -type f > "$tmp/install.files"

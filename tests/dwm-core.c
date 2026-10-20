@@ -234,6 +234,8 @@ testconfig(void)
 	assert(LENGTH(tags) == 1 && MODKEY == Mod4Mask);
 	assert(!showbar && !topbar && !layouts[0].arrange);
 	assert(strstr(fonts[1], "Noto Color Emoji"));
+	assert(!strcmp(dmenucmd[0], "wm-launcher"));
+	assert(!strcmp(dmenucmd[1], "-m") && dmenucmd[2] == dmenumon);
 	applyrules(&first);
 	assert(first.isfloating && first.tags == 1);
 	m = createmon();

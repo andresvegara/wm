@@ -10,10 +10,10 @@ clic, mitades/cuartos, maximizar/restaurar, fullscreen, centrar, traslado entre
 monitores y cierre normal. `tests/dwm-core.c` prueba funciones reales con Xlib
 simulado; no abre un display.
 
-st tiene una serie parcial: tamaño libre, transparencia, cursor parpadeante y
-perfil de Alacritty, con tests Xlib/Xft simulados y UBSan. Falta scrollback/reflow.
-También faltan la bandeja, los componentes de sesión y el lanzador combinado.
-Windows+Espacio usa temporalmente dmenu_run. Configurar fuentes emoji no
+st incluye tamaño libre, transparencia, cursor parpadeante, perfil de Alacritty,
+historial de 2000 filas y reflow al redimensionar, con tests simulados y ASan/UBSan.
+Windows+Espacio abre el lanzador combinado de aplicaciones, archivos y acciones.
+Siguen pendientes la bandeja y los componentes completos de sesión. Configurar fuentes emoji no
 acredita todavía su renderizado. Hay avisos de funciones upstream sin uso tras
 retirar sus atajos, no una compilación libre de warnings.
 
@@ -115,6 +115,21 @@ Referencias: [paru](https://github.com/Morganamilo/paru),
 [GTK](https://wiki.archlinux.org/title/GTK), [Qt](https://wiki.archlinux.org/title/Qt)
 y [Fusion/Qt Quick](https://doc.qt.io/qt-6/qtquickcontrols-fusion.html).
 
+## Lanzador
+
+Windows+Espacio mezcla aplicaciones, nombres de archivos y acciones. GIO
+interpreta las entradas .desktop; las etiquetas nunca se ejecutan como shell.
+Las acciones de apagar/reiniciar/suspender/cerrar sesión requieren confirmación.
+Las aplicaciones de terminal usan xdg-terminal-exec, con st como default de dwm.
+
+El índice recorre HOME por nombres, sin leer contenido, ocultos, symlinks de
+directorio ni carpetas de dependencias/build. Se renueva al invocar si tiene más
+de 60 segundos; la primera búsqueda puede tardar en un HOME muy grande. Archivos
+borrados o convertidos en symlinks no se abren desde un resultado obsoleto.
+El índice está en `$XDG_CACHE_HOME/wm/files.json` (por defecto `~/.cache/wm`).
+Shift+PageUp/PageDown y la rueda recorren el historial de st; aplicaciones que
+solicitan eventos de ratón los conservan (Shift fuerza los atajos del terminal).
+
 ## Publicación futura
 
 El coordinador wm tiene `origin` en `git@github.com:andresvegara/wm.git`.
@@ -155,8 +170,7 @@ necesitar los historiales oficiales. Los tests admiten commits descendientes
 de cada raíz propia y exigen que importación + serie reproduzca exactamente
 las fuentes. Los nombres de los parches conservan el hash oficial únicamente
 para identificar su procedencia y compatibilidad.
-Pendiente: completar scrollback/reflow de st, después dmenu; bandeja y servicios
-de sesión siguen pendientes. No activar aún.
+Pendiente: bandeja, servicios y registro de sesión. No activar aún.
 
 ## Seguridad de la sesión actual
 
