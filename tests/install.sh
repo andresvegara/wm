@@ -7,8 +7,8 @@ fixture=$work/source\ tree
 bin=$work/bin
 dest=$work/destination\ tree
 mkdir -p "$fixture/scripts" "$fixture/session" "$bin" "$work/build"
-cp "$root/scripts/install.sh" "$root/scripts/dependencies.tsv" "$fixture/scripts/"
-cp "$root/session/wm-session" "$fixture/session/"
+cp "$root/scripts/install.sh" "$root/scripts/dependencies.tsv" "$root/scripts/wm-launcher" "$fixture/scripts/"
+cp -R "$root/session/." "$fixture/session/"
 
 fail()
 {
@@ -62,6 +62,10 @@ st) outputs=st ;;
 *) exit 90 ;;
 esac
 for output in $outputs; do cp "$src/PAYLOAD" "$src/$output"; done
+MOCK
+cat_mock python3 <<'MOCK'
+#!/bin/sh
+[ ! -f "$MOCK_STATE/pygi" ]
 MOCK
 cat_mock pkg-config <<'MOCK'
 #!/bin/sh
@@ -217,6 +221,12 @@ while IFS="$tab" read -r kind name package path; do
 		reject
 		grep -Fq "$path" "$work/output" || fail "unchecked command: $name"
 		mv "$work/held-command" "$bin/$name"
+		;;
+	pygi)
+		printf missing > "$work/pygi"
+		reject
+		grep -Fq "$path" "$work/output" || fail 'unchecked GIO module'
+		rm "$work/pygi"
 		;;
 	pc)
 		printf missing > "$work/pc-$name"

@@ -1,4 +1,8 @@
 # kind	name	Arch package	diagnostic path
+command	python3	python	/usr/bin/python3
+command	gio	glib2	/usr/bin/gio
+command	xdg-terminal-exec	xdg-terminal-exec	/usr/bin/xdg-terminal-exec
+pygi	Gio	python-gobject	/usr/lib/python3/site-packages/gi/__init__.py
 command	cc	gcc	/usr/bin/cc
 command	as	binutils	/usr/bin/as
 command	ld	binutils	/usr/bin/ld

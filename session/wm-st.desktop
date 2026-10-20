@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=st
+Comment=Simple terminal
+Exec=/usr/local/bin/st
+TryExec=/usr/local/bin/st
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+X-TerminalArgExec=-e
+X-TerminalArgAppId=-c
+X-TerminalArgTitle=-t

@@ -30,6 +30,7 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | monitorplacement | Translate/reapply geometry when moving between monitors. |
 | profile | Personal config.def.h: bindings, single tag, floating and fonts. |
 | documentation | Manual and development notice for the complete configuration. |
+| launcherbinding | Personal binding to the combined external launcher. |
 
 These are ordered patches, not eleven interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -49,7 +50,9 @@ The activation behavior matches the community
 [focusonnetactive](https://dwm.suckless.org/patches/focusonnetactive/) feature,
 whose page credits Danny O'Brien. Its original 6.2 diff was not applied; this
 version integrates the behavior with the recorded base and tests across
-monitors. No systray patch has been applied yet.
+monitors. No systray patch has been applied: the session integration will reuse trayer and
+snixembed instead of duplicating tray services in dwm. launcherbinding depends on
+the profile and the wm-launcher runtime installed by the coordinator.
 
 ## st series (partial)
 
