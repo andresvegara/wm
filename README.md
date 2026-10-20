@@ -8,6 +8,10 @@ Adwaita/Fusion solo en sus descendientes. No reemplaza ni desinstala Plasma.
 La [guía de sesión](docs/session.md) recoge atajos, componentes y límites.
 Bandeja tint2 con puente snixembed y fondo liso claro, sin wallpaper ni selector;
 no se requieren Nitrogen, Trayer ni GTK2 para esas funciones.
+«Pantallas» abre un asistente dmenu con posiciones relativas y confirmación con
+reversión en 15 segundos. Guarda automáticamente perfiles por combinación de
+monitores y los restaura al iniciar/conectar/desconectar, mediante xrandr y
+autorandr; no necesita el gestor de ajustes de otro escritorio.
 
 ## Instalar con el script
 
@@ -63,6 +67,7 @@ Para instalar **también la sesión manualmente**, después de los tres programa
 sudo install -Dm755 session/wm-session /usr/local/bin/wm-session
 sudo install -Dm755 scripts/wm-supervisor /usr/local/bin/wm-supervisor
 sudo install -Dm755 scripts/wm-launcher /usr/local/bin/wm-launcher
+sudo install -Dm755 scripts/wm-displays /usr/local/bin/wm-displays
 sudo install -Dm644 session/picom.conf /usr/local/share/wm/picom.conf
 sudo install -Dm644 session/dunstrc /usr/local/share/wm/dunstrc
 sudo install -Dm644 session/tint2rc /usr/local/share/wm/tint2rc

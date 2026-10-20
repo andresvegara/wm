@@ -65,7 +65,7 @@ class World:
         self.foreign = self.existing_wm = self.stubborn = False
         self.secret = True
         self.agent = False
-        self.no_agent = self.no_secrets = self.profile_failure = False
+        self.no_agent = self.no_secrets = False
         self.wm_code = 0
         self.interrupt = None
         self.randr = [connected]
@@ -101,9 +101,6 @@ class World:
             output = self.randr[0]
             if len(self.randr) > 1:
                 self.randr.pop(0)
-        elif name == "lxqt-config-monitor":
-            assert argv == [name, "-l"]
-            code = 1 if self.profile_failure else 0
         elif name == "xsetroot":
             assert argv == [name, "-solid", "#f6f5f4"]
         elif name == "xset":
@@ -175,9 +172,12 @@ try:
     world = World()
     exercise(world)
     spawned = [p.args[0] for p in world.processes]
-    assert spawned[:-1] == ["dunst", "picom", "lxqt-policykit-agent", "tint2", "snixembed", "nm-applet", "copyq", "xss-lock"]
-    assert spawned[-1].endswith("/dwm")
+    assert spawned[:-2] == ["dunst", "picom", "lxqt-policykit-agent", "tint2", "snixembed", "nm-applet", "copyq", "xss-lock"]
+    assert spawned[-2].endswith("/dwm")
+    assert spawned[-1].endswith("/wm-displays")
+    assert world.processes[-1].args[1:] == ["--watch"]
     assert world.processes[-1].environment["SSH_AUTH_SOCK"] == "/synthetic/foreign-agent"
+    assert "lxqt-config-monitor" not in inventory
     assert not any(c[0] == "systemctl" for c in world.calls)
     locker = next(p for p in world.processes if p.args[0] == "xss-lock")
     assert locker.args == ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"]
@@ -193,7 +193,9 @@ try:
         exercise(world)
     for field, value in (("dead", "lxqt-policykit-agent"), ("dead", "tint2"),
                          ("fail_spawn", "tint2"), ("fail_spawn", "nm-applet"),
-                         ("fail_command", "xrandr"), ("wm_code", 2),
+                         ("fail_command", "xrandr"),
+                         ("dead", str(root / "scripts/wm-displays")),
+                         ("fail_spawn", str(root / "scripts/wm-displays")), ("wm_code", 2),
                          ("foreign", True), ("existing_wm", True)):
         world = World()
         setattr(world, field, value)
@@ -247,8 +249,8 @@ try:
     finally:
         module.DATA = data
 
-    # Monitor focus does not enter this interface. Geometry restarts only tint2;
-    # physical changes alone reapply profiles, including disconnect/reconnect.
+    # The display manager owns profiles; the supervisor only tracks tray geometry.
+    # Focus never enters this interface.
     world = World()
     configure(world)
     children = []
@@ -259,28 +261,20 @@ try:
     world.randr = [geometry]
     previous, tray = module.monitors(previous, tray, children, None)
     assert tray is not first and first.pid in [pid for pid, sig in world.kills]
-    assert sum(c[0] == "lxqt-config-monitor" for c in world.calls) == 1
+    assert all(c[0] == "xrandr" for c in world.calls)
     for text in (secondary, connected, secondary):
         world.randr = [text]
         previous, tray = module.monitors(previous, tray, children, None)
-    assert sum(c[0] == "lxqt-config-monitor" for c in world.calls) == 4
+    assert all(c[0] == "xrandr" for c in world.calls)
     assert len(children) == 1 and children[0][0] is tray
     assert tray.args == ["tint2", "-c", str(module.DATA / "tint2rc")]
     # A primary-only change also restarts the tray without reapplying profiles.
     first = tray
-    restores = sum(c[0] == "lxqt-config-monitor" for c in world.calls)
     world.randr = [secondary.replace("DP-1 connected ", "DP-1 connected primary ")
                    .replace("HDMI-1 connected primary ", "HDMI-1 connected ")]
     previous, tray = module.monitors(previous, tray, children, None)
     assert tray is not first and first.pid in [pid for pid, sig in world.kills]
-    assert sum(c[0] == "lxqt-config-monitor" for c in world.calls) == restores
-    # Failed restore is nonfatal and not retried for geometry-only events.
-    world.profile_failure = True
-    world.randr = [connected, geometry]
-    previous, tray = module.monitors(previous, tray, children, None)
-    restores = sum(c[0] == "lxqt-config-monitor" for c in world.calls)
-    previous, tray = module.monitors(previous, tray, children, None)
-    assert sum(c[0] == "lxqt-config-monitor" for c in world.calls) == restores
+    assert all(c[0] == "xrandr" for c in world.calls)
     assert module.outputs(secondary)[0] != module.outputs(connected)[0]
     try:
         module.outputs("invalid synthetic output")

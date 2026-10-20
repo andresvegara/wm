@@ -35,7 +35,7 @@ def choose(items, prompt, monitor=None):
 
 def actions():
     return {
-        "Pantallas": (["lxqt-config-monitor"], False),
+        "Pantallas": (["wm-displays"], False),
         "Red y VPN": (["nm-connection-editor"], False),
         "Contraseñas y claves SSH": (["seahorse"], False),
         "Sonido": (["pavucontrol"], False),
@@ -50,6 +50,8 @@ def actions():
 
 def execute_action(name, monitor=None):
     command, confirm = actions()[name]
+    if name == "Pantallas" and monitor is not None:
+        command += ["-m", monitor]
     if name == "Cerrar sesión" and not command[-1]:
         print("wm-launcher: falta XDG_SESSION_ID; no se cerró ninguna sesión", file=sys.stderr)
         return

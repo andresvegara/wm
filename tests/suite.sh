@@ -117,6 +117,7 @@ sh "$root/tests/export-patches.sh" "$root" "$tmp"
 sh "$root/tests/install.sh" "$root" "$tmp"
 python3 "$root/tests/desktop.py" "$root" "$tmp"
 python3 "$root/tests/session.py" "$root" "$tmp"
+python3 "$root/tests/displays.py" "$root" "$tmp"
 python3 "$root/tests/session-shortcuts.py" "$root" "$tmp"
 
 for file in "$root"/tests/*.sh "$root"/scripts/*.sh "$root/session/wm-session"; do
