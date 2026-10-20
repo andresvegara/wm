@@ -101,6 +101,9 @@ class World:
             output = self.randr[0]
             if len(self.randr) > 1:
                 self.randr.pop(0)
+        elif name == "setxkbmap":
+            assert argv == [name, "-layout", "es", "-variant", ""]
+            assert not self.processes
         elif name == "xsetroot":
             assert argv == [name, "-solid", "#f6f5f4"]
         elif name == "xset":
@@ -183,6 +186,7 @@ try:
     assert locker.args == ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"]
     assert ["xset", "s", "600", "600"] in world.calls
     assert ["xsetroot", "-solid", "#f6f5f4"] in world.calls
+    assert ["setxkbmap", "-layout", "es", "-variant", ""] in world.calls
     assert next(p.args for p in world.processes if p.args[0] == "tint2") == [
         "tint2", "-c", str(module.DATA / "tint2rc")]
     assert not any(c[0] in ("loginctl", "powerdevil", "pactl", "wpctl") for c in world.calls)
@@ -191,6 +195,11 @@ try:
         world = World()
         world.interrupt = sig
         exercise(world)
+    world = World()
+    world.fail_command = "setxkbmap"
+    exercise(world, failure=True)
+    assert not world.processes and not any(call[0] == "systemctl" for call in world.calls)
+
     for field, value in (("dead", "lxqt-policykit-agent"), ("dead", "tint2"),
                          ("fail_spawn", "tint2"), ("fail_spawn", "nm-applet"),
                          ("fail_command", "xrandr"),

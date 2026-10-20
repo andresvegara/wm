@@ -56,6 +56,10 @@ un mínimo de hardware de 1 para no pedir apagar el panel. Necesita permisos del
 sistema y un dispositivo compatible. No se configura DDC ni control individual
 de brillo de monitores externos. No se usa sudo desde los atajos.
 
+El supervisor aplica **teclado español de España (`es`, variante predeterminada)**
+con `setxkbmap` antes de arrancar aplicaciones. No persiste ajustes en `/etc` ni
+en las preferencias de Plasma. Si falla, no inicia los hijos de la sesión.
+
 ## Lanzador
 
 Super+Espacio muestra solo aplicaciones y acciones del sistema, diferenciadas

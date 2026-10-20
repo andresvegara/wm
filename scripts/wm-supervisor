@@ -126,6 +126,7 @@ def run():
 
         handlers = {sig: signal.signal(sig, interrupt) for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)}
         try:
+            command(["setxkbmap", "-layout", "es", "-variant", ""])
             if not owns("org.freedesktop.secrets"):
                 command(["systemctl", "--user", "start", "gnome-keyring-daemon.socket"])
                 command(["gnome-keyring-daemon", "--start", "--components=secrets"])
