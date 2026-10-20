@@ -25,7 +25,7 @@ for mod, key, argv in (
     (superkey, "XK_Return", ("jumpapp", "alacritty")),
     (superkey, "XK_w", ("jumpapp", "brave")),
     (superkey | shift, "XK_w", ("jumpapp", "chromium")),
-    (superkey, "XK_e", ("jumpapp", "dolphin")),
+    (superkey, "XK_e", ("jumpapp", "-f", "thunar")),
     (superkey | shift, "XK_m", ("jumpapp", "spotify")),
     (superkey | shift, "XK_c", ("copyq", "show")),
 ):

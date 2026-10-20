@@ -38,7 +38,7 @@ command	cat	coreutils	/usr/bin/cat
 command	awk	gawk	/usr/bin/awk
 command	brave	brave-bin	/usr/bin/brave
 command	chromium	chromium	/usr/bin/chromium
-command	dolphin	dolphin	/usr/bin/dolphin
+command	thunar	thunar	/usr/bin/thunar
 command	spotify	spotify	/usr/bin/spotify
 command	copyq	copyq	/usr/bin/copyq
 # Shortcut providers: https://archlinux.org/packages/extra/x86_64/playerctl/

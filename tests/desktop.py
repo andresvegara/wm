@@ -23,6 +23,9 @@ assert (root / "session/dwm-xdg-terminals.list").read_text().splitlines() == [
     "Alacritty.desktop", "wm-st.desktop"]
 assert "command\talacritty\talacritty\t/usr/bin/alacritty" in (
     root / "scripts/dependencies.tsv").read_text()
+inventory = (root / "scripts/dependencies.tsv").read_text()
+assert "command\tthunar\tthunar\t/usr/bin/thunar\n" in inventory
+assert "command\tdolphin\t" not in inventory
 repository = types.ModuleType("gi.repository")
 repository.GLib = types.SimpleNamespace(Error=RuntimeError)
 sys.modules["gi"] = types.ModuleType("gi")

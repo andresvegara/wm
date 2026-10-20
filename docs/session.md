@@ -19,7 +19,7 @@ foco por clic, no por pasar el ratón.
 | Super+Espacio | Lanzador combinado |
 | Super+Intro | Abrir/enfocar/alternar ventanas de Alacritty con jumpapp |
 | Super+W / Super+Shift+W | Brave / Chromium con jumpapp |
-| Super+E | Dolphin con jumpapp |
+| Super+E | Thunar con jumpapp (abre/enfoca/alterna ventanas) |
 | Super+Shift+M | Spotify con jumpapp |
 | Super+Shift+C | Mostrar CopyQ |
 | Super+flechas | Mitades; combinar ejes para cuartos; repetir libera el eje |
@@ -75,6 +75,12 @@ confirmación. Cancelar no ejecuta la acción. Cerrar sesión necesita
 Alacritty es la terminal preferida de la sesión, también para aplicaciones
 `.desktop` con `Terminal=true` mediante xdg-terminal-exec. st se conserva
 instalado como alternativa; no se modifica la configuración personal de Alacritty.
+
+Super+E usa `jumpapp -f thunar`: también puede abrir una ventana si Thunar ya
+está en segundo plano sin ventanas normales. El instalador requiere `thunar`,
+no Dolphin; no desinstala Dolphin ni cambia asociaciones de carpetas o ajustes
+de Plasma. GVfs y sus backends son opcionales para papelera/montaje/red y no se
+añaden automáticamente en este cambio.
 
 ## Dependencias y entrega al instalador
 
