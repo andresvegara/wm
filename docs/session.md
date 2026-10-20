@@ -17,7 +17,7 @@ foco por clic, no por pasar el ratón.
 | Atajo | Acción |
 | --- | --- |
 | Super+Espacio | Lanzador combinado |
-| Super+Intro | Abrir/enfocar/alternar ventanas de st con jumpapp |
+| Super+Intro | Abrir/enfocar/alternar ventanas de Alacritty con jumpapp |
 | Super+W / Super+Shift+W | Brave / Chromium con jumpapp |
 | Super+E | Dolphin con jumpapp |
 | Super+Shift+M | Spotify con jumpapp |
@@ -58,17 +58,23 @@ de brillo de monitores externos. No se usa sudo desde los atajos.
 
 ## Lanzador
 
-Super+Espacio muestra aplicaciones, archivos por nombre y acciones, diferenciados
-por etiquetas. GIO interpreta los archivos `.desktop`. Los nombres de archivos
-no se ejecutan como shell; se buscan bajo HOME, excluyendo ocultos, dependencias,
-cachés y enlaces simbólicos. El índice se renueva al invocar, con un intervalo
-de 60 segundos; un archivo nuevo puede tardar en aparecer. No se busca contenido.
+Super+Espacio muestra solo aplicaciones y acciones del sistema, diferenciadas
+por etiquetas, en un dmenu centrado horizontal y verticalmente en el monitor
+activo. Las confirmaciones también se centran. El ancho se adapta al texto,
+con un mínimo de 500 píxeles limitado al monitor. GIO interpreta los archivos
+`.desktop`. No recorre HOME ni busca
+archivos; no crea, lee ni actualiza índices. Los índices de versiones anteriores
+se ignoran y no se borran automáticamente. Las etiquetas no se ejecutan como shell.
 
 Acciones disponibles: pantallas (`lxqt-config-monitor`), red/VPN (`nm-connection-editor`), contraseñas/SSH (`seahorse`), sonido
-(`pavucontrol`), estado de energía (`st -e watch -n 5 upower --dump`), bloqueo,
+(`pavucontrol`), estado de energía (`alacritty -e watch -n 5 upower --dump`), bloqueo,
 suspensión, reinicio, apagado y cierre de sesión. Las cuatro últimas requieren
 confirmación. Cancelar no ejecuta la acción. Cerrar sesión necesita
 `XDG_SESSION_ID`; no se adivina otra sesión si falta.
+
+Alacritty es la terminal preferida de la sesión, también para aplicaciones
+`.desktop` con `Terminal=true` mediante xdg-terminal-exec. st se conserva
+instalado como alternativa; no se modifica la configuración personal de Alacritty.
 
 ## Dependencias y entrega al instalador
 

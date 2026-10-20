@@ -34,6 +34,9 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | docks | Borderless, unfocusable EWMH docks with absolute configure coordinates. |
 | sessionkeys | Personal media, volume, brightness, screenshot and lock bindings. |
 | sessiondocs | Manual/README for the complete session shortcut configuration. |
+| alacritty | Personal terminal binding, retaining st as an alternative. |
+| terminaldocs | Manual update for the preferred terminal. |
+| launcherdocs | Manual update for the apps/actions-only launcher. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -62,6 +65,25 @@ on the earlier focus/fullscreen changes; it is not an XEmbed implementation.
 Sessionkeys follows the profile/launcherbinding and depends at runtime on
 playerctl, wpctl, brightnessctl, Flameshot and wm-launcher (see docs/session.md).
 Sessiondocs follows sessionkeys and changes only documentation.
+
+## dmenu series
+
+Base: `8627d0c659f5bb79ba29edd0e7264fb7549e6fac`. Apply `dmenu/series` in order:
+
+| Feature | Scope |
+| --- | --- |
+| center | Optional `-c` horizontal/vertical centering on the selected monitor. |
+| centerdocs | Manual for centering, adaptive width and monitor bounds. |
+
+Center adapts the community [dmenu-center-5.2.diff](https://tools.suckless.org/dmenu/patches/center/),
+credited there to Ed van Bruggen, Nihal Jere, El Bachir Kassimi and Leliel
+(across the published versions). The original
+is preserved unchanged in `upstream/dmenu/` with SHA256SUMS. The adaptation keeps
+normal mode and `-m`, factors geometry for isolated tests, bounds menu height on
+small displays and includes `-c` in usage. The launcher opts into `-c`; there is
+no change to standalone dmenu defaults. Centerdocs depends on center.
+`make test` builds each prefix and checks real geometry with synthetic dimensions
+and text widths under UBSan, without opening X11 or discovering fonts.
 
 ## st series
 

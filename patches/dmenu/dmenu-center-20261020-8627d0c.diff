@@ -1,0 +1,101 @@
+diff --git a/config.def.h b/config.def.h
+index 1edb647..9545268 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -2,6 +2,8 @@
+ /* Default settings; can be overriden by command line. */
+ 
+ static int topbar = 1;                      /* -b  option; if 0, dmenu appears at bottom     */
++static int centered = 0;                    /* -c option; centers dmenu on screen */
++static int min_width = 500;                 /* minimum width when centered */
+ /* -fn option overrides fonts[0]; default X11 font or font set */
+ static const char *fonts[] = {
+ 	"monospace:size=10"
+diff --git a/dmenu.c b/dmenu.c
+index 2c64545..855d0d2 100644
+--- a/dmenu.c
++++ b/dmenu.c
+@@ -95,6 +95,32 @@ calcoffsets(void)
+ 			break;
+ }
+ 
++static int
++max_textw(void)
++{
++	struct item *item;
++	int width = 0;
++
++	for (item = items; item && item->text; item++)
++		width = MAX(TEXTW(item->text), width);
++	return width;
++}
++
++static void
++menugeometry(int ox, int oy, int width, int height, int *x, int *y)
++{
++	mw = width;
++	if (centered) {
++		mw = MIN(MAX(max_textw() + promptw, min_width), width);
++		mh = MIN(mh, height);
++		*x = ox + (width - mw) / 2;
++		*y = oy + (height - mh) / 2;
++	} else {
++		*x = ox;
++		*y = oy + (topbar ? 0 : height - mh);
++	}
++}
++
+ static void
+ cleanup(void)
+ {
+@@ -636,6 +662,7 @@ setup(void)
+ 	bh = drw->fonts->h + 2;
+ 	lines = MAX(lines, 0);
+ 	mh = (lines + 1) * bh;
++	promptw = (prompt && *prompt) ? TEXTW(prompt) - lrpad / 4 : 0;
+ #ifdef XINERAMA
+ 	i = 0;
+ 	if (parentwin == root && (info = XineramaQueryScreens(dpy, &n))) {
+@@ -667,9 +694,8 @@ setup(void)
+ 		if (i >= n)
+ 			i = 0;
+ 
+-		x = info[i].x_org;
+-		y = info[i].y_org + (topbar ? 0 : info[i].height - mh);
+-		mw = info[i].width;
++		menugeometry(info[i].x_org, info[i].y_org,
++		             info[i].width, info[i].height, &x, &y);
+ 		XFree(info);
+ 	} else
+ #endif
+@@ -677,11 +703,8 @@ setup(void)
+ 		if (!XGetWindowAttributes(dpy, parentwin, &wa))
+ 			die("could not get embedding window attributes: 0x%lx",
+ 			    parentwin);
+-		x = 0;
+-		y = topbar ? 0 : wa.height - mh;
+-		mw = wa.width;
++		menugeometry(0, 0, wa.width, wa.height, &x, &y);
+ 	}
+-	promptw = (prompt && *prompt) ? TEXTW(prompt) - lrpad / 4 : 0;
+ 	inputw = mw / 3; /* input width: ~33% of monitor width */
+ 	match();
+ 
+@@ -720,7 +743,7 @@ setup(void)
+ static void
+ usage(void)
+ {
+-	die("usage: dmenu [-bfiv] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
++	die("usage: dmenu [-bcfiv] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
+ 	    "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]");
+ }
+ 
+@@ -737,6 +760,8 @@ main(int argc, char *argv[])
+ 			exit(0);
+ 		} else if (!strcmp(argv[i], "-b")) /* appears at the bottom of the screen */
+ 			topbar = 0;
++		else if (!strcmp(argv[i], "-c"))   /* centers dmenu on screen */
++			centered = 1;
+ 		else if (!strcmp(argv[i], "-f"))   /* grabs keyboard before reading stdin */
+ 			fast = 1;
+ 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */

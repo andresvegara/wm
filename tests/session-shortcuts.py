@@ -22,7 +22,7 @@ def binding(mod, key, function, *args):
 superkey, shift, alt, control = 64, 1, 8, 4
 for mod, key, argv in (
     (superkey, "XK_space", ("wm-launcher", "-m", "")),
-    (superkey, "XK_Return", ("jumpapp", "st")),
+    (superkey, "XK_Return", ("jumpapp", "alacritty")),
     (superkey, "XK_w", ("jumpapp", "brave")),
     (superkey | shift, "XK_w", ("jumpapp", "chromium")),
     (superkey, "XK_e", ("jumpapp", "dolphin")),
