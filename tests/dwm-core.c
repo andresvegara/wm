@@ -2,8 +2,10 @@
 #include <assert.h>
 
 #define main dwm_main
+#define drw_resize test_drw_resize
 #include "dwm.c"
 #undef main
+#undef drw_resize
 
 static Monitor monitor, other;
 static Client first, second;
@@ -15,6 +17,9 @@ static int deleteprotocol, closeevents, replayevents, configureevents;
 static Window focused, raised, transient, mapped;
 static Atom windowtype, initialstate;
 static unsigned int lastborder;
+static const char *setuppropertyvalue;
+static int setuppropertyformat;
+static Atom setuppropertytype;
 
 int
 XGetWindowProperty(Display *display, Window w, Atom property, long offset,
@@ -23,7 +28,14 @@ XGetWindowProperty(Display *display, Window w, Atom property, long offset,
 {
 	*data = NULL;
 	*count = 0;
-	if ((property == netatom[NetWMWindowType] && windowtype)
+	*remaining = 0;
+	if (w == root && property == windowsetupatom && setuppropertyvalue) {
+		*count = strlen(setuppropertyvalue);
+		*data = malloc(*count + 1);
+		memcpy(*data, setuppropertyvalue, *count + 1);
+		*actual = setuppropertytype;
+		*format = setuppropertyformat;
+	} else if ((property == netatom[NetWMWindowType] && windowtype)
 	|| (property == netatom[NetWMState] && initialstate)) {
 		*data = malloc(sizeof(long));
 		*(long *)*data = property == netatom[NetWMWindowType] ? windowtype : initialstate;
@@ -236,6 +248,31 @@ XMapWindow(Display *display, Window window)
 	return 1;
 }
 
+void
+test_drw_resize(Drw *drawing, unsigned int width, unsigned int height)
+{
+	assert(width && height);
+}
+
+Bool
+XineramaIsActive(Display *display)
+{
+	return False;
+}
+
+Bool
+XQueryPointer(Display *display, Window window, Window *rootwin, Window *child,
+	int *rootx, int *rooty, int *x, int *y, unsigned int *mask)
+{
+	*rootwin = root;
+	*child = None;
+	*rootx = monitor.wx + 1;
+	*rooty = monitor.wy + 1;
+	*x = *y = 0;
+	*mask = 0;
+	return True;
+}
+
 static void
 reset(void)
 {
@@ -272,6 +309,12 @@ reset(void)
 	deleteprotocol = closeevents = replayevents = configureevents = 0;
 	focused = raised = windowtype = transient = mapped = initialstate = None;
 	lastborder = 99;
+	windowsetupatom = 300;
+	windowsetup[0] = '\0';
+	setuppending = 0;
+	setuppropertyvalue = NULL;
+	setuppropertyformat = 8;
+	setuppropertytype = XA_STRING;
 	memset(ungrabs, 0, sizeof ungrabs);
 	for (i = 0; i < NetLast; i++)
 		netatom[i] = 100 + i;
@@ -704,6 +747,200 @@ testinitialcenter(void)
 }
 
 static void
+setupproperty(const char *value)
+{
+	XEvent event = {0};
+
+	setuppropertyvalue = value;
+	event.xproperty.window = root;
+	event.xproperty.atom = windowsetupatom;
+	event.xproperty.state = PropertyNewValue;
+	propertynotify(&event);
+	setuppropertyvalue = NULL;
+}
+
+static void
+readysetup(unsigned int setup)
+{
+	char key[SetupLength + 1];
+
+	snprintf(key, sizeof key, "%064x", setup);
+	setupproperty(key);
+}
+
+static void
+testwindowsetups(void)
+{
+	XEvent event = {0};
+	SavedGeometry geometry;
+	Client *fresh;
+	char original[SetupLength + 1];
+	unsigned int i;
+	int configured;
+
+	reset();
+	beginwindowsetup();
+	assert(!first.geometrycount);
+	readysetup(1);
+	assert(!setuppending && !first.geometrycount);
+	monitor.clients = monitor.stack = monitor.sel = NULL;
+	readysetup(2);
+	assert(!setuppending);
+	reset();
+	readysetup(1);
+	resizeclient(&first, -880, 110, 500, 300);
+	setupproperty("pending");
+	assert(setuppending && first.geometrycount == 1);
+	resizeclient(&first, -970, 80, 250, 180);
+	setupproperty("pending");
+	assert(first.geometrycount == 1 && first.geometry[0].w == 500);
+	readysetup(2);
+	expectgeom(-970, 80, 250, 180);
+	resizeclient(&first, -800, 200, 400, 250);
+	setupproperty("pending");
+	resizeclient(&first, -950, 60, 200, 100);
+	readysetup(1);
+	expectgeom(-880, 110, 500, 300);
+	assert(!setuppending && focused == first.win && raised == None);
+	resizeclient(&first, -850, 120, 420, 260);
+	configured = configureevents;
+	readysetup(1);
+	expectgeom(-850, 120, 420, 260);
+	assert(configureevents == configured);
+
+	/* Root resize captures BEFORE any automatic geometry changes. */
+	monitor.barwin = 2;
+	event.xconfigure.window = root;
+	event.xconfigure.width = 800;
+	event.xconfigure.height = 600;
+	configurenotify(&event);
+	assert(setuppending && first.geometry[0].w == 420);
+	resizeclient(&first, -980, 45, 100, 100);
+	configurenotify(&event);
+	assert(first.geometry[0].w == 420);
+	readysetup(1);
+	expectgeom(-850, 120, 420, 260);
+	configurenotify(&event);
+	assert(!setuppending);
+
+	/* Same-class windows remain independent; new/recycled XIDs inherit nothing. */
+	reset();
+	readysetup(1);
+	setupproperty("pending");
+	fresh = ecalloc(1, sizeof *fresh);
+	fresh->win = 20;
+	fresh->x = -940; fresh->y = 80; fresh->w = 200; fresh->h = 100;
+	fresh->isfloating = fresh->hintsvalid = 1;
+	fresh->tags = 1; fresh->bw = 1; fresh->mon = &monitor;
+	attach(fresh); attachstack(fresh);
+	readysetup(2);
+	readysetup(1);
+	assert(fresh->x == -940 && fresh->w == 200 && fresh->geometrycount == 1);
+	unmanage(fresh, 1);
+	fresh = ecalloc(1, sizeof *fresh);
+	assert(!fresh->geometrycount);
+	free(fresh);
+
+	reset();
+	other = monitor;
+	other.num = 1;
+	other.mx = other.wx = 1;
+	other.my = other.wy = 0;
+	other.clients = other.stack = other.sel = &second;
+	monitor.next = &other;
+	second = first;
+	second.win = 20; second.mon = &other; second.x = 100; second.y = 60;
+	readysetup(1);
+	setupproperty("pending");
+	detach(&second); detachstack(&second);
+	other.sel = NULL;
+	second.mon = &monitor;
+	attach(&second); attachstack(&second);
+	monitor.next = NULL;
+	readysetup(2);
+	setupproperty("pending");
+	monitor.next = &other;
+	readysetup(1);
+	assert(second.mon == &other && second.x == 100 && second.y == 60);
+	assert(selmon == &monitor && monitor.sel == &first && focused == first.win);
+
+	reset();
+	readysetup(1);
+	snapto(PlaceLeft);
+	setfullscreen(&first, 1);
+	setupproperty("pending");
+	readysetup(2);
+	setupproperty("pending");
+	readysetup(1);
+	assert(first.isfullscreen && first.placement == PlaceLeft);
+	setfullscreen(&first, 0);
+	snapto(PlaceLeft);
+	expectgeom(-900, 100, 601, 401);
+	reset();
+	readysetup(1);
+	togglemaximize(NULL);
+	setupproperty("pending"); readysetup(2);
+	setupproperty("pending"); readysetup(1);
+	assert(first.placement == PlaceMax);
+	togglemaximize(NULL);
+	expectgeom(-900, 100, 601, 401);
+
+	reset();
+	readysetup(1);
+	setfullscreen(&first, 1);
+	setupproperty("pending"); readysetup(2);
+	setupproperty("pending"); readysetup(1);
+	assert(first.isfullscreen && first.fullw == 601 && first.fullh == 401);
+	setfullscreen(&first, 0);
+	expectgeom(-900, 100, 601, 401);
+
+	reset();
+	geometry = (SavedGeometry){ .monitor = 99, .x = 99999, .y = -99, .w = 99999, .h = 99999 };
+	restoregeometry(&first, &geometry);
+	assert(first.mon == &monitor && first.x == monitor.wx && first.y == monitor.wy);
+	assert(first.w <= monitor.ww && first.h <= monitor.wh);
+	reset();
+	readysetup(1); setupproperty("pending");
+	first.isdock = 1;
+	readysetup(2);
+	resizeclient(&first, -940, 70, 220, 120);
+	setupproperty("pending"); readysetup(1);
+	expectgeom(-940, 70, 220, 120);
+	assert(first.geometrycount == 1);
+	reset();
+	first.isdock = 1;
+	readysetup(1); setupproperty("pending");
+	assert(!first.geometrycount);
+	reset();
+	first.isfloating = 0;
+	readysetup(1); setupproperty("pending");
+	assert(!first.geometrycount);
+
+	reset();
+	readysetup(1);
+	memcpy(original, windowsetup, sizeof original);
+	setupproperty("invalid");
+	assert(!strcmp(windowsetup, original) && !setuppending);
+	setuppropertyformat = 32;
+	readysetup(2);
+	assert(!strcmp(windowsetup, original));
+	setuppropertyformat = 8;
+	setuppropertytype = XA_ATOM;
+	readysetup(2);
+	assert(!strcmp(windowsetup, original));
+	setuppropertytype = XA_STRING;
+	setupproperty("pending");
+	setupproperty("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffZ");
+	assert(setuppending && !strcmp(windowsetup, original));
+	readysetup(1);
+	for (i = 2; i < SavedSetups + 5; i++)
+		readysetup(i);
+	assert(first.geometrycount == SavedSetups);
+	for (i = 0; i < first.geometrycount; i++)
+		assert(strcmp(first.geometry[i].setup, original));
+}
+
+static void
 testspawn(void)
 {
 	const char *command[] = { "synthetic", "with spaces", "$(never-run);secret=value", NULL };
@@ -758,6 +995,7 @@ main(void)
 	testdock();
 	testinitialcenter();
 	testspawn();
-	puts("PASS: dwm configuration, placement, initial centering, focus, close and monitor tests");
+	testwindowsetups();
+	puts("PASS: dwm geometry, initial centering, pointer focus, close, spawn and setup history (mock Xlib, ASan/UBSan)");
 	return 0;
 }

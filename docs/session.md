@@ -215,7 +215,31 @@ segundos y espera dos lecturas iguales de la combinación de salidas/EDID:
 - Los cambios de geometría, primaria o foco no reactivan perfiles. Un cambio de
   monitores durante un menú cierra el borrador y procesa el nuevo setup.
 
-Los perfiles autorandr quedan solo en `$XDG_CONFIG_HOME/wm/displays/` (por defecto
+### Disposición de ventanas abiertas
+
+Además del perfil de monitores, dwm recuerda posición, tamaño normal y monitor de
+cada ventana flotante que siga abierta, para hasta **16 disposiciones** por ventana
+(historial FIFO). Al volver a una disposición conocida se recuperan sus geometrías;
+las ventanas nuevas no heredan posiciones de otras aplicaciones ni de XID reciclados.
+Se mantiene el estado actual fullscreen/maximizado/mitades, recalculado en el monitor,
+y se recupera también el rectángulo para volver a flotante. Docks y tiled se excluyen.
+Se limita el rectángulo al área útil y se respetan las restricciones de tamaño de
+la aplicación; una aplicación con mínimo mayor que el monitor puede sobresalir.
+
+La clave de disposición incluye conexiones/EDID, salidas activas, modo, rotación,
+posición y primaria. Si Xinerama reordena salidas idénticas sin cambios observables,
+no se garantiza identificar el mismo monitor físico. El supervisor de pantallas
+publica `_WM_DISPLAY_SETUP`: `pending` antes de aplicar y una clave al confirmar
+estabilidad, bajo el lock de edición. dwm captura también antes del recolocado
+por desconexión para no guardar el fallback sobre el setup anterior. Heartbeats
+y cambios de foco no recentran ventanas ni roban foco a otra aplicación.
+
+**No se guarda ningún título, clase de aplicación ni posición de ventana en disco.**
+La memoria se olvida al cerrar la ventana o reiniciar dwm; no se reabren aplicaciones
+ni se intenta adivinar qué ventana corresponde entre sesiones. Ambos componentes,
+dwm y wm-displays, deben estar actualizados y en ejecución para coordinarlo.
+
+Los perfiles de monitores de autorandr quedan solo en `$XDG_CONFIG_HOME/wm/displays/` (por defecto
 `~/.config/wm/displays/`), con enlaces de publicación atómica a versiones privadas.
 No editar esos enlaces ni habilitar un segundo servicio autorandr para wm. No se
 leen/importan perfiles ni hooks personales/globales de autorandr o de Plasma.
