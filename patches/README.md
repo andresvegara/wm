@@ -37,6 +37,8 @@ Filenames use `dwm-<feature>-20261020-bca7cf2.diff`. The order is:
 | alacritty | Personal terminal binding, retaining st as an alternative. |
 | terminaldocs | Manual update for the preferred terminal. |
 | launcherdocs | Manual update for the apps/actions-only launcher. |
+| thunar | Personal Super+E binding to jumpapp -f thunar. |
+| thunardocs | Manual update for Thunar and background-process handling. |
 
 These are ordered patches, not interchangeable standalone patches.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
@@ -65,6 +67,10 @@ on the earlier focus/fullscreen changes; it is not an XEmbed implementation.
 Sessionkeys follows the profile/launcherbinding and depends at runtime on
 playerctl, wpctl, brightnessctl, Flameshot and wm-launcher (see docs/session.md).
 Sessiondocs follows sessionkeys and changes only documentation.
+Thunar follows the existing profile/session bindings; `jumpapp -f` still raises
+and cycles existing windows, but can open one when only a background process is
+running. It depends on the coordinator's `thunar` dependency. Thunardocs follows
+thunar and only updates the manual. No file associations or Plasma defaults change.
 
 ## dmenu series
 
