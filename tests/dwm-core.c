@@ -1,0 +1,511 @@
+/* Test the real dwm functions with synthetic clients and Xlib substitutes. */
+#include <assert.h>
+
+#define main dwm_main
+#include "dwm.c"
+#undef main
+
+static Monitor monitor, other;
+static Client first, second;
+static Fnt testfont = { .h = 16 };
+static Drw testdrw = { .fonts = &testfont };
+static Clr testcolors[3];
+static Clr *testscheme[] = { testcolors, testcolors };
+static int deleteprotocol, closeevents, replayevents, configureevents;
+static Window focused, raised;
+static unsigned int ungrabs[64];
+
+/* Never let a test open a real display, even if its environment is wrong. */
+Display *
+XOpenDisplay(const char *name)
+{
+	assert(!"tests must not open an X display");
+	return NULL;
+}
+
+int
+XConfigureWindow(Display *display, Window window, unsigned int mask,
+	XWindowChanges *changes)
+{
+	assert(changes->width > 0 && changes->height > 0);
+	configureevents++;
+	return 1;
+}
+
+Status
+XSendEvent(Display *display, Window window, Bool propagate, long mask,
+	XEvent *event)
+{
+	if (event->type == ClientMessage
+	&& event->xclient.data.l[0] == wmatom[WMDelete]) {
+		assert(event->xclient.message_type == wmatom[WMProtocols]);
+		assert(event->xclient.format == 32);
+		closeevents++;
+	}
+	return 1;
+}
+
+Status
+XGetWMProtocols(Display *display, Window window, Atom **protocols, int *count)
+{
+	if (!deleteprotocol) {
+		*count = 0;
+		return 0;
+	}
+	*protocols = malloc(sizeof(Atom));
+	assert(*protocols);
+	(*protocols)[0] = wmatom[WMDelete];
+	*count = 1;
+	return 1;
+}
+
+int
+XFree(void *data)
+{
+	free(data);
+	return 1;
+}
+
+XWMHints *
+XGetWMHints(Display *display, Window window)
+{
+	return NULL;
+}
+
+Status
+XGetClassHint(Display *display, Window window, XClassHint *hint)
+{
+	return 0;
+}
+
+XModifierKeymap *
+XGetModifierMapping(Display *display)
+{
+	return NULL;
+}
+
+int
+XUngrabButton(Display *display, unsigned int button, unsigned int modifiers,
+	Window window)
+{
+	assert(window < LENGTH(ungrabs));
+	ungrabs[window]++;
+	return 1;
+}
+
+int
+XGrabButton(Display *display, unsigned int button, unsigned int modifiers,
+	Window window, Bool owner, unsigned int mask, int pointermode,
+	int keyboardmode, Window confine, Cursor pointer)
+{
+	return 1;
+}
+
+int
+XSetWindowBorder(Display *display, Window window, unsigned long pixel)
+{
+	return 1;
+}
+
+int
+XSetInputFocus(Display *display, Window window, int revert, Time time)
+{
+	focused = window;
+	return 1;
+}
+
+int
+XChangeProperty(Display *display, Window window, Atom property, Atom type,
+	int format, int mode, const unsigned char *data, int count)
+{
+	return 1;
+}
+
+int
+XDeleteProperty(Display *display, Window window, Atom property)
+{
+	return 1;
+}
+
+int
+XRaiseWindow(Display *display, Window window)
+{
+	raised = window;
+	return 1;
+}
+
+int
+XMoveWindow(Display *display, Window window, int x, int y)
+{
+	return 1;
+}
+
+int
+XSync(Display *display, Bool discard)
+{
+	return 1;
+}
+
+Bool
+XCheckMaskEvent(Display *display, long mask, XEvent *event)
+{
+	return False;
+}
+
+int
+XAllowEvents(Display *display, int mode, Time time)
+{
+	assert(mode == ReplayPointer);
+	replayevents++;
+	return 1;
+}
+
+int
+XKillClient(Display *display, XID resource)
+{
+	assert(!"ordinary close must not kill an X client");
+	return 0;
+}
+
+static void
+reset(void)
+{
+	int i;
+
+	monitor = (Monitor){0};
+	other = (Monitor){0};
+	first = (Client){0};
+	second = (Client){0};
+	monitor.mx = monitor.wx = -1000;
+	monitor.my = monitor.wy = 40;
+	monitor.mw = monitor.ww = 1001;
+	monitor.mh = monitor.wh = 799;
+	monitor.tagset[0] = monitor.tagset[1] = 1;
+	monitor.lt[0] = monitor.lt[1] = &layouts[0];
+	first.x = -900;
+	first.y = 100;
+	first.w = 601;
+	first.h = 401;
+	first.bw = 1;
+	first.hintsvalid = first.isfloating = 1;
+	first.tags = 1;
+	first.win = 10;
+	first.mon = &monitor;
+	monitor.sel = monitor.clients = monitor.stack = &first;
+	mons = selmon = &monitor;
+	drw = &testdrw;
+	scheme = testscheme;
+	dpy = NULL;
+	root = 1;
+	bh = 18;
+	sw = 4000;
+	sh = 2400;
+	deleteprotocol = closeevents = replayevents = configureevents = 0;
+	focused = raised = None;
+	memset(ungrabs, 0, sizeof ungrabs);
+	for (i = 0; i < NetLast; i++)
+		netatom[i] = 100 + i;
+	for (i = 0; i < WMLast; i++)
+		wmatom[i] = 200 + i;
+}
+
+static void
+expectgeom(int x, int y, int w, int h)
+{
+	assert(first.x == x && first.y == y);
+	assert(first.w == w && first.h == h);
+}
+
+static void
+snapto(unsigned int direction)
+{
+	Arg arg = { .ui = direction };
+
+	snapclient(&arg);
+}
+
+static void
+testconfig(void)
+{
+	size_t i, j;
+	Monitor *m;
+
+	reset();
+	assert(LENGTH(tags) == 1 && MODKEY == Mod4Mask);
+	assert(!showbar && !topbar && !layouts[0].arrange);
+	assert(strstr(fonts[1], "Noto Color Emoji"));
+	applyrules(&first);
+	assert(first.isfloating && first.tags == 1);
+	m = createmon();
+	assert(m->tagset[0] == 1 && m->tagset[1] == 1);
+	assert(!m->lt[0]->arrange && !m->showbar);
+	free(m);
+	for (i = 0; i < LENGTH(keys); i++)
+		for (j = i + 1; j < LENGTH(keys); j++)
+			assert(keys[i].mod != keys[j].mod
+				|| keys[i].keysym != keys[j].keysym);
+}
+
+static void
+testplacement(void)
+{
+	unsigned int horizontal[] = { PlaceLeft, PlaceRight };
+	unsigned int vertical[] = { PlaceTop, PlaceBottom };
+	size_t i, j;
+
+	for (i = 0; i < LENGTH(horizontal); i++)
+		for (j = 0; j < LENGTH(vertical); j++) {
+			reset();
+			snapto(horizontal[i]);
+			expectgeom(i ? -500 : -1000, 40, i ? 499 : 498, 797);
+			snapto(vertical[j]);
+			expectgeom(i ? -500 : -1000, j ? 439 : 40,
+				i ? 499 : 498, j ? 398 : 397);
+			snapto(horizontal[i]);
+			expectgeom(-1000, j ? 439 : 40, 999, j ? 398 : 397);
+			snapto(vertical[j]);
+			expectgeom(-900, 100, 601, 401);
+			assert(!first.placement);
+		}
+	reset();
+	snapto(PlaceTop);
+	snapto(PlaceLeft);
+	expectgeom(-1000, 40, 498, 397);
+	snapto(PlaceRight);
+	expectgeom(-500, 40, 499, 397);
+	snapto(PlaceBottom);
+	expectgeom(-500, 439, 499, 398);
+	snapto(PlaceRight);
+	snapto(PlaceBottom);
+	expectgeom(-900, 100, 601, 401);
+	snapto(0);
+	expectgeom(-900, 100, 601, 401);
+}
+
+static void
+testmaximize(void)
+{
+	reset();
+	togglemaximize(NULL);
+	assert(first.placement == PlaceMax && !first.isfullscreen);
+	expectgeom(-1000, 40, 999, 797);
+	togglemaximize(NULL);
+	expectgeom(-900, 100, 601, 401);
+	snapto(PlaceLeft);
+	togglemaximize(NULL);
+	togglemaximize(NULL);
+	assert(first.placement == PlaceLeft);
+	expectgeom(-1000, 40, 498, 797);
+	snapto(PlaceLeft);
+	expectgeom(-900, 100, 601, 401);
+	togglemaximize(NULL);
+	snapto(PlaceBottom);
+	expectgeom(-1000, 439, 999, 398);
+	snapto(PlaceBottom);
+	expectgeom(-900, 100, 601, 401);
+}
+
+static void
+testlimits(void)
+{
+	reset();
+	first.isfixed = 1;
+	snapto(PlaceLeft);
+	togglemaximize(NULL);
+	expectgeom(-900, 100, 601, 401);
+	assert(!first.placement);
+	reset();
+	monitor.ww = 2;
+	snapto(PlaceLeft);
+	assert(!first.placement && !configureevents);
+	reset();
+	first.minw = 550;
+	snapto(PlaceLeft);
+	assert(first.w == 550);
+	reset();
+	snapto(PlaceRight);
+	monitor.ww = 400;
+	monitor.wh = 300;
+	snapto(PlaceRight);
+	expectgeom(-1000, 40, 398, 298);
+	monitor.sel = NULL;
+	snapto(PlaceLeft);
+	togglemaximize(NULL);
+	togglefullscreen(NULL);
+	centerclient(NULL);
+	killclient(NULL);
+}
+
+static void
+testfullscreen(void)
+{
+	reset();
+	snapto(PlaceLeft);
+	togglefullscreen(NULL);
+	assert(first.isfullscreen && first.bw == 0);
+	expectgeom(-1000, 40, 1001, 799);
+	/* Screen changes must not overwrite the pre-fullscreen geometry. */
+	resizeclient(&first, -1000, 40, 1200, 850);
+	snapto(PlaceRight);
+	togglemaximize(NULL);
+	centerclient(NULL);
+	expectgeom(-1000, 40, 1200, 850);
+	togglefullscreen(NULL);
+	assert(!first.isfullscreen && first.bw == 1);
+	expectgeom(-1000, 40, 498, 797);
+	snapto(PlaceLeft);
+	expectgeom(-900, 100, 601, 401);
+	centerclient(NULL);
+	expectgeom(-801, 238, 601, 401);
+	snapto(PlaceBottom);
+	centerclient(NULL);
+	expectgeom(-801, 238, 601, 401);
+	assert(!first.placement);
+}
+
+static void
+testclose(void)
+{
+	reset();
+	killclient(NULL);
+	assert(!closeevents);
+	deleteprotocol = 1;
+	killclient(NULL);
+	assert(closeevents == 1);
+	monitor.sel = NULL;
+	killclient(NULL);
+	assert(closeevents == 1);
+}
+
+static void
+testfocus(void)
+{
+	XEvent event = {0};
+
+	reset();
+	second = first;
+	second.win = 20;
+	first.next = first.snext = &second;
+	monitor.next = &other;
+	other.mx = other.wx = 1;
+	other.mw = other.ww = 1000;
+	other.mh = other.wh = 800;
+	event.xcrossing.window = second.win;
+	event.xcrossing.mode = NotifyNormal;
+	enternotify(&event);
+	assert(monitor.sel == &first && selmon == &monitor);
+	event.xmotion.window = root;
+	event.xmotion.x_root = 100;
+	motionnotify(&event);
+	assert(monitor.sel == &first && selmon == &monitor);
+	event.xbutton.window = second.win;
+	event.xbutton.button = Button1;
+	buttonpress(&event);
+	assert(monitor.sel == &second && focused == second.win);
+	assert(replayevents == 1 && raised == second.win);
+	focus(&first);
+	assert(monitor.sel == &first);
+	event.xclient.window = second.win;
+	event.xclient.message_type = netatom[NetActiveWindow];
+	clientmessage(&event);
+	assert(monitor.sel == &second && focused == second.win);
+	assert(raised == second.win);
+	event.xclient.window = 999;
+	clientmessage(&event);
+	assert(monitor.sel == &second);
+}
+
+static void
+testcrossfocus(void)
+{
+	Client third;
+	XEvent event = {0};
+
+	reset();
+	other = monitor;
+	other.sel = other.clients = other.stack = &second;
+	monitor.next = &other;
+	second = first;
+	second.win = 20;
+	second.mon = &other;
+	third = second;
+	third.win = 30;
+	second.next = second.snext = &third;
+	event.xclient.window = third.win;
+	event.xclient.message_type = netatom[NetActiveWindow];
+	clientmessage(&event);
+	assert(selmon == &other && other.sel == &third);
+	assert(ungrabs[first.win] && ungrabs[second.win]);
+	assert(ungrabs[third.win] && focused == third.win);
+}
+
+static void
+testmonitors(void)
+{
+	Arg arg = { .i = 1 };
+	XEvent event = {0};
+
+	reset();
+	other = monitor;
+	other.mx = other.wx = 1;
+	other.my = other.wy = 0;
+	other.sel = other.clients = other.stack = NULL;
+	monitor.next = &other;
+	snapto(PlaceLeft);
+	togglemaximize(NULL);
+	tagmon(&arg);
+	assert(selmon == &other && first.mon == &other);
+	assert(other.sel == &first && focused == first.win);
+	assert(!monitor.clients && !monitor.stack);
+	assert(first.restoreplacement == PlaceLeft);
+	togglemaximize(NULL);
+	expectgeom(1, 0, 498, 797);
+	snapto(PlaceLeft);
+	expectgeom(101, 60, 601, 401);
+	tagmon(&arg);
+	assert(selmon == &monitor && first.mon == &monitor);
+	expectgeom(-900, 100, 601, 401);
+	second = first;
+	second.win = 20;
+	second.mon = &other;
+	other.sel = other.clients = other.stack = &second;
+	event.xclient.window = second.win;
+	event.xclient.message_type = netatom[NetActiveWindow];
+	clientmessage(&event);
+	assert(selmon == &other && other.sel == &second);
+	assert(focused == second.win && raised == second.win);
+
+	reset();
+	other = monitor;
+	other.mx = other.wx = 1;
+	other.my = other.wy = 0;
+	other.mw = other.ww = 801;
+	other.mh = other.wh = 601;
+	other.sel = other.clients = other.stack = NULL;
+	monitor.next = &other;
+	snapto(PlaceLeft);
+	togglefullscreen(NULL);
+	tagmon(&arg);
+	assert(first.isfullscreen && first.mon == &other);
+	expectgeom(1, 0, 801, 601);
+	togglefullscreen(NULL);
+	expectgeom(1, 0, 398, 599);
+	snapto(PlaceLeft);
+	expectgeom(101, 60, 601, 401);
+}
+
+int
+main(void)
+{
+	testconfig();
+	testplacement();
+	testmaximize();
+	testlimits();
+	testfullscreen();
+	testclose();
+	testfocus();
+	testcrossfocus();
+	testmonitors();
+	puts("PASS: dwm configuration, placement, focus, close and monitor tests");
+	return 0;
+}
