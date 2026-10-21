@@ -1,0 +1,16 @@
+#!/bin/sh
+# Appearance belongs to this process tree, not Plasma or the shared bus.
+set -eu
+bindir=$(CDPATH= cd -- "${0%/*}" && pwd)
+XDG_CURRENT_DESKTOP=awesome
+XDG_SESSION_DESKTOP=awesome
+DESKTOP_SESSION=awesome
+GTK_THEME=Adwaita
+QT_QPA_PLATFORMTHEME=generic
+QT_STYLE_OVERRIDE=Fusion
+QT_QUICK_CONTROLS_STYLE=Fusion
+XDG_DATA_DIRS=$bindir/../share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}
+export XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION GTK_THEME
+export QT_QPA_PLATFORMTHEME QT_STYLE_OVERRIDE QT_QUICK_CONTROLS_STYLE XDG_DATA_DIRS
+unset KDE_FULL_SESSION KDE_SESSION_VERSION QT_QUICK_CONTROLS_CONF
+exec "$bindir/awesome-supervisor" "$@"

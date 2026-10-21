@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Awesome (wm)
+Comment=Floating Awesome X11 session
+Exec=/usr/local/bin/awesome-session
+TryExec=/usr/local/bin/awesome-session
+Type=Application
+DesktopNames=awesome

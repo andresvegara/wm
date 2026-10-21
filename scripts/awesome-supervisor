@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+# Own child process groups, never the desktop's shared agents or services.
+import fcntl
+import hashlib
+import os
+from pathlib import Path
+import re
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+DATA = Path(__file__).resolve().parent.parent / "share" / "wm"
+
+
+def command(argv, required=True, timeout=20):
+    result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, timeout=timeout)
+    if required and result.returncode:
+        raise RuntimeError("falló {} (código {})".format(argv[0], result.returncode))
+    return result
+
+
+def owns(name):
+    result = command(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
+                      "--object-path", "/org/freedesktop/DBus", "--method",
+                      "org.freedesktop.DBus.NameHasOwner", name])
+    if result.stdout.strip() not in ("(true,)", "(false,)"):
+        raise RuntimeError("respuesta D-Bus inválida")
+    return result.stdout.strip() == "(true,)"
+
+
+def private(path, parents=False):
+    # Reject ancestors before mkdir/open, not after following their symlinks.
+    for parent in (path, *path.parents):
+        if parent.is_symlink():
+            raise RuntimeError("enlace no permitido: {}".format(parent))
+    path.mkdir(mode=0o700, parents=parents, exist_ok=True)
+    info = path.stat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise RuntimeError("directorio privado inseguro: {}".format(path))
+    return path
+
+
+def open_private(path, truncate=False):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o077 or info.st_nlink != 1):
+            raise RuntimeError("archivo privado inseguro: {}".format(path))
+        if truncate:
+            os.ftruncate(fd, 0)
+        return os.fdopen(fd, "w")
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def start(children, argv, log, required=True):
+    process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log,
+                               stderr=subprocess.STDOUT, start_new_session=True)
+    children.append((process, required))
+    return process
+
+
+def stop(process):
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=3)
+    except ProcessLookupError:
+        pass
+
+
+def ready(process, check, name, interrupted):
+    for attempt in range(50):
+        if interrupted() or process.poll() is not None:
+            break
+        if check():
+            return
+        time.sleep(0.1)
+    raise RuntimeError("no inició {}".format(name))
+
+
+def wm_ready(process):
+    result = command(["wmctrl", "-m"], required=False, timeout=1)
+    fields = dict(re.findall(r"^([^:\n]+):\s*(.*?)\s*$", result.stdout, re.MULTILINE))
+    if (result.returncode != 0 or fields.get("Name") != "awesome"
+            or fields.get("PID") != str(process.pid)):
+        return False
+    configured = command(["awesome-client", "return wm_ready == true"], required=False, timeout=1)
+    return configured.returncode == 0 and configured.stdout.strip() == "boolean true"
+
+
+def run():
+    if not os.environ.get("DISPLAY") or os.environ.get("XDG_SESSION_TYPE", "x11") != "x11":
+        raise RuntimeError("selecciona la sesión Awesome X11 en el gestor de acceso")
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        raise RuntimeError("falta el bus de sesión; inicia desde SDDM")
+    for config in (DATA / "dunstrc", DATA / "awesome/rc.lua"):
+        if not config.is_file():
+            raise RuntimeError("falta configuración de sesión: {}".format(config))
+    if command(["wmctrl", "-m"], required=False).returncode == 0:
+        raise RuntimeError("ya hay un gestor de ventanas; no se modificó")
+    for name in ("org.awesomewm.awful", "org.freedesktop.Notifications", "org.kde.StatusNotifierWatcher"):
+        if owns(name):
+            raise RuntimeError("otro escritorio ocupa {}; no se modificó".format(name))
+    # Linux comm is limited to 15 bytes; conservatively refuse rather than duplicate.
+    for name in ("nm-applet", "copyq", "lxqt-policykit-agent", "xss-lock"):
+        result = command(["pgrep", "-u", str(os.getuid()), "-x", name[:15]], required=False)
+        if result.returncode != 1:
+            raise RuntimeError("componente existente o comprobación fallida: {}".format(name))
+    runtime = private(Path(os.environ["XDG_RUNTIME_DIR"]))
+    key = hashlib.sha256(os.environ["DISPLAY"].encode()).hexdigest()[:16]
+    # Share dwm's lock namespace so both prepared sessions cannot race on DISPLAY.
+    directory = private(runtime / ("wm-" + key))
+    cache = private(Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "wm", parents=True)
+    with open_private(directory / "session.lock") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("ya hay una sesión wm en esta pantalla")
+        with open_private(cache / ("awesome-session-" + key + ".log"), truncate=True) as log:
+            children = []
+            interrupted = False
+
+            def interrupt(signum, frame):
+                nonlocal interrupted
+                interrupted = True
+
+            handlers = {sig: signal.signal(sig, interrupt)
+                        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)}
+            try:
+                if not owns("org.freedesktop.secrets"):
+                    command(["systemctl", "--user", "start", "gnome-keyring-daemon.socket"])
+                    command(["gnome-keyring-daemon", "--start", "--components=secrets"])
+                    for attempt in range(50):
+                        if interrupted:
+                            raise RuntimeError("inicio interrumpido")
+                        if owns("org.freedesktop.secrets"):
+                            break
+                        time.sleep(0.1)
+                    else:
+                        raise RuntimeError("no inició el servicio de secretos")
+                if not os.environ.get("SSH_AUTH_SOCK"):
+                    command(["systemctl", "--user", "start", "gcr-ssh-agent.socket"])
+                    agent = runtime / "gcr/ssh"
+                    for attempt in range(50):
+                        if interrupted:
+                            raise RuntimeError("inicio interrumpido")
+                        if agent.is_socket():
+                            break
+                        time.sleep(0.1)
+                    else:
+                        raise RuntimeError("no apareció el socket GCR de esta sesión")
+                    os.environ["SSH_AUTH_SOCK"] = str(agent)
+                command(["xsetroot", "-solid", "#f6f5f4"])
+                wm = start(children, ["awesome", "-c", str(DATA / "awesome/rc.lua")], log, required=False)
+                ready(wm, lambda: wm_ready(wm), "Awesome", lambda: interrupted)
+                notification = start(children, ["dunst", "-conf", str(DATA / "dunstrc")], log)
+                ready(notification, lambda: owns("org.freedesktop.Notifications"), "Dunst", lambda: interrupted)
+                start(children, ["lxqt-policykit-agent"], log)
+                bridge = start(children, ["snixembed"], log)
+                ready(bridge, lambda: owns("org.kde.StatusNotifierWatcher"), "snixembed", lambda: interrupted)
+                start(children, ["nm-applet"], log, required=False)
+                start(children, ["copyq"], log, required=False)
+                start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)
+                command(["xset", "s", "600", "600"])
+                while wm.poll() is None and not interrupted:
+                    for process, required in children:
+                        if required and process.poll() is not None:
+                            raise RuntimeError("terminó un componente necesario: {}".format(process.args[0]))
+                    time.sleep(1)
+                if not interrupted and wm.returncode:
+                    raise RuntimeError("Awesome terminó con código {}".format(wm.returncode))
+            finally:
+                cleanup_error = None
+                for process, required in reversed(children):
+                    try:
+                        stop(process)
+                    except (OSError, subprocess.SubprocessError) as error:
+                        cleanup_error = error
+                for sig, handler in handlers.items():
+                    signal.signal(sig, handler)
+                if cleanup_error is not None:
+                    raise RuntimeError("no se completó la limpieza: {}".format(cleanup_error))
+
+
+if __name__ == "__main__":
+    try:
+        run()
+    except (OSError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+        print("awesome-session: {}".format(error), file=sys.stderr)
+        sys.exit(1)
