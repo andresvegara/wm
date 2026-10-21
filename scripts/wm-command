@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+# dmenu collects a command; only the terminal ever receives interactive input.
+import argparse
+import subprocess
+import sys
+
+WRAPPER = '''/bin/sh -c "$1"
+code=$?
+if [ "$code" -ne 0 ]; then
+    printf '\\nEl comando terminó con código %s. Pulsa Enter para cerrar.' "$code"
+    IFS= read -r answer
+fi
+exit "$code"
+'''
+
+
+def run():
+    parser = argparse.ArgumentParser(description="Comandos interactivos desde dmenu")
+    parser.add_argument("-m", dest="monitor")
+    options = parser.parse_args()
+    paths = subprocess.run(["dmenu_path"], text=True, encoding="utf-8",
+                           stdout=subprocess.PIPE, timeout=10, check=True)
+    argv = ["dmenu", "-c", "-i", "-l", "12", "-p", "Ejecutar"]
+    if options.monitor is not None:
+        argv += ["-m", options.monitor]
+    selected = subprocess.run(argv, input=paths.stdout, text=True, encoding="utf-8",
+                              stdout=subprocess.PIPE)
+    text = selected.stdout.removesuffix("\n")
+    if selected.returncode or not text.strip():
+        return 0
+    subprocess.Popen(["alacritty", "-e", "/bin/sh", "-c", WRAPPER, "wm-command", text],
+                     start_new_session=True)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(run())
+    except (OSError, subprocess.SubprocessError):
+        print("wm-command: no se pudo iniciar el comando", file=sys.stderr)
+        try:
+            subprocess.run(["wm-run", "--error", "comando", "No se pudo abrir el lanzador o la terminal"], timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        sys.exit(1)
