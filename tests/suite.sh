@@ -15,6 +15,24 @@ fail()
 [ -z "${DISPLAY-}${WAYLAND_DISPLAY-}${DBUS_SESSION_BUS_ADDRESS-}" ] ||
     fail 'graphical/session environment is not isolated'
 
+awesome_tests()
+{
+	command -v lua5.3 >/dev/null 2>&1 || fail 'Awesome tests require lua5.3 (Arch: lua53)'
+	make -C "$root/awesome" test ROOT="$root"
+	lua5.3 "$root/awesome/tests/widgets.lua" "$root" "$tmp"
+	python3 "$root/tests/awesome-session.py" "$root" "$tmp"
+	python3 "$root/tests/awesome-command.py" "$root" "$tmp"
+	sh "$root/tests/awesome-package.sh" "$root" "$tmp"
+	for file in "$root/tests/run.sh" "$root/tests/suite.sh" "$root/session/awesome-session"; do
+		sh -n "$file"
+	done
+}
+
+if [ "${3-all}" = awesome ]; then
+	awesome_tests
+	exit 0
+fi
+
 for sums in "$root"/patches/upstream/*/SHA256SUMS; do
 	[ -f "$sums" ] || continue
 	(cd "$(dirname "$sums")" && sha256sum --check SHA256SUMS)
@@ -121,6 +139,7 @@ cc -std=c99 -pedantic -Wall -D_DEFAULT_SOURCE -DVERSION=\"5.4\" -DXINERAMA \
 "$tmp/dmenu-center-test"
 sh "$root/tests/export-patches.sh" "$root" "$tmp"
 sh "$root/tests/install.sh" "$root" "$tmp"
+awesome_tests
 python3 "$root/tests/desktop.py" "$root" "$tmp"
 python3 "$root/tests/commands.py" "$root" "$tmp"
 python3 "$root/tests/session.py" "$root" "$tmp"

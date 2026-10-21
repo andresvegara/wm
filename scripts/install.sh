@@ -21,7 +21,107 @@ case "$dest" in
 esac
 command -v id >/dev/null 2>&1 || fail 'falta binario: /usr/bin/id'
 [ "$(id -u)" != 0 ] || fail 'ejecuta como usuario normal, sin sudo; se pedirán permisos al copiar'
-[ "$#" = 0 ] || fail 'uso: sh scripts/install.sh (DESTDIR opcional)'
+session=dwm
+case "$*" in
+'') ;;
+--awesome) [ "$#" = 1 ] || fail 'argumentos inválidos'; session=awesome ;;
+*) fail 'uso: sh scripts/install.sh [--awesome] (DESTDIR opcional)' ;;
+esac
+
+publish()
+{
+	find "$stage" -type f > "$tmp/install.files"
+	# Check every destination before the first privileged copy.
+	while IFS= read -r source; do
+		target=$dest${source#"$stage"}
+		[ ! -L "$target" ] || fail "destino es un enlace simbólico: $target"
+		[ ! -d "$target" ] || fail "destino es un directorio: $target"
+		[ ! -e "$target" ] || [ -f "$target" ] || fail "destino no es un archivo: $target"
+		parent=${target%/*}
+		while [ -n "$parent" ]; do
+			[ ! -L "$parent" ] || fail "directorio de destino es un enlace simbólico: $parent"
+			[ ! -e "$parent" ] || [ -d "$parent" ] ||
+			    fail "directorio de destino no es un directorio: $parent"
+			parent=${parent%/*}
+		done
+	done < "$tmp/install.files"
+
+	changed=0
+	while IFS= read -r source; do
+		target=$dest${source#"$stage"}
+		mode=$(stat -c %a "$source")
+		if [ -f "$target" ] && cmp -s "$source" "$target" &&
+		    [ "$(stat -c %a "$target")" = "$mode" ]; then
+			if [ -n "$dest" ] || [ "$(stat -c %u:%g "$target")" = 0:0 ]; then
+				continue
+			fi
+		fi
+		if [ -n "$dest" ]; then
+			install -D -m "$mode" "$source" "$target"
+		else
+			sudo install -D -o 0 -g 0 -m "$mode" "$source" "$target"
+		fi
+		changed=$((changed + 1))
+	done < "$tmp/install.files"
+}
+
+install_awesome()
+{
+	check_dependencies
+	[ -z "$packages" ] || fail 'dependencias Awesome ausentes; no se modificó el sistema'
+	# Own configuration only: never discover or overwrite a user's rc.lua.
+	for file in awesome/rc.lua awesome/wm-close.c awesome/wm-monitor.c session/awesome-session session/awesome.desktop scripts/awesome-supervisor; do
+		[ -f "$root/$file" ] && [ ! -L "$root/$file" ] || fail "falta archivo regular: $file"
+	done
+	[ -n "$dest" ] || command -v sudo >/dev/null 2>&1 || fail 'falta binario: /usr/bin/sudo'
+	tmp=$(mktemp -d)
+	trap 'rm -rf -- "$tmp"' EXIT
+	trap 'exit 1' HUP INT TERM
+	stage=$tmp/stage
+	mkdir -p "$stage/usr/local/bin"
+	for dir in config widgets; do
+		[ -d "$root/awesome/$dir" ] && [ ! -L "$root/awesome/$dir" ] || fail "falta directorio regular: awesome/$dir"
+		find "$root/awesome/$dir" -mindepth 1 ! -type d ! -type f > "$tmp/special"
+		[ ! -s "$tmp/special" ] || fail "archivo especial en awesome/$dir"
+		find "$root/awesome/$dir" -type f \( -name '*.lua' -o -name '*.py' \) > "$tmp/lua.files"
+		[ -s "$tmp/lua.files" ] || fail "sin módulos Lua: awesome/$dir"
+		while IFS= read -r file; do
+			install -D -m 644 "$file" "$stage/usr/local/share/wm/${file#"$root/"}"
+		done < "$tmp/lua.files"
+	done
+	# Build only the local patched dmenu; no bootstrap, dwm or terminal build.
+	[ -d "$root/dmenu/.git" ] || [ -f "$root/dmenu/.git" ] || fail 'falta checkout local: dmenu'
+	mkdir "$tmp/dmenu"
+	git -C "$root/dmenu" ls-files > "$tmp/dmenu.files"
+	tar -cf "$tmp/dmenu.tar" -C "$root/dmenu" -T "$tmp/dmenu.files"
+	tar -xf "$tmp/dmenu.tar" -C "$tmp/dmenu"
+	(
+		unset MAKEFLAGS MFLAGS
+		make -C "$tmp/dmenu" clean
+		rm -f "$tmp/dmenu/config.h"
+		make -C "$tmp/dmenu" CC=cc PREFIX=/usr/local all
+	)
+	for binary in dmenu dmenu_path dmenu_run stest; do
+		install -m 755 "$tmp/dmenu/$binary" "$stage/usr/local/bin/$binary"
+	done
+	for helper in wm-close wm-monitor; do
+		cc -std=c99 -pedantic -Wall -Wextra $(pkg-config --cflags x11 xinerama) \
+		    "$root/awesome/$helper.c" -o "$stage/usr/local/bin/$helper" $(pkg-config --libs x11 xinerama)
+		chmod 755 "$stage/usr/local/bin/$helper"
+	done
+	install -D -m 644 "$root/awesome/rc.lua" "$stage/usr/local/share/wm/awesome/rc.lua"
+	install -m 755 "$root/session/awesome-session" "$stage/usr/local/bin/awesome-session"
+	install -m 755 "$root/scripts/awesome-supervisor" "$stage/usr/local/bin/awesome-supervisor"
+	for helper in wm-command wm-launcher wm-run wm-control; do
+		[ -f "$root/scripts/$helper" ] && [ ! -L "$root/scripts/$helper" ] || fail "falta helper regular: $helper"
+		install -m 755 "$root/scripts/$helper" "$stage/usr/local/bin/$helper"
+	done
+	install -D -m 644 "$root/session/dunstrc" "$stage/usr/local/share/wm/dunstrc"
+	install -D -m 644 "$root/session/awesome.desktop" "$stage/usr/local/share/xsessions/awesome.desktop"
+	publish
+	printf 'install: %s archivos Awesome actualizados; no se ha habilitado ni iniciado ningún servicio ni sesión\n' "$changed"
+	exit 0
+}
 
 arch=no
 if [ -r "${WM_OS_RELEASE-/etc/os-release}" ]; then
@@ -46,6 +146,10 @@ check_dependencies()
 	packages=
 	tab=$(printf '\t')
 	while IFS="$tab" read -r kind name package path; do
+		case "$session:$kind" in
+		awesome:awesome-*) kind=${kind#awesome-} ;;
+		awesome:*|dwm:awesome-*) continue ;;
+		esac
 		case "$kind" in
 		''|\#*) continue ;;
 		command)
@@ -100,6 +204,8 @@ check_dependencies()
 		esac
 	done < "$root/scripts/dependencies.tsv"
 }
+
+[ "$session" != awesome ] || install_awesome
 
 # Validate the whole inventory before changing dependencies or fetching anything.
 seen=' '
@@ -259,39 +365,7 @@ install -D -m 644 "$root/session/wm-st.desktop" "$stage/usr/local/share/applicat
 install -D -m 644 "$root/session/dwm-xdg-terminals.list" "$stage/usr/local/share/xdg-terminal-exec/dwm-xdg-terminals.list"
 tic -sx -o "$stage/usr/local/share/terminfo" "$tmp/st/st.info"
 
-find "$stage" -type f > "$tmp/install.files"
-# Refuse destination symlinks before publishing any file.
-while IFS= read -r source; do
-	target=$dest${source#"$stage"}
-	[ ! -L "$target" ] || fail "destino es un enlace simbólico: $target"
-	[ ! -d "$target" ] || fail "destino es un directorio: $target"
-	[ ! -e "$target" ] || [ -f "$target" ] || fail "destino no es un archivo: $target"
-	parent=${target%/*}
-	while [ -n "$parent" ]; do
-		[ ! -L "$parent" ] || fail "directorio de destino es un enlace simbólico: $parent"
-		[ ! -e "$parent" ] || [ -d "$parent" ] ||
-		    fail "directorio de destino no es un directorio: $parent"
-		parent=${parent%/*}
-	done
-done < "$tmp/install.files"
-
-changed=0
-while IFS= read -r source; do
-	target=$dest${source#"$stage"}
-	mode=$(stat -c %a "$source")
-	if [ -f "$target" ] && cmp -s "$source" "$target" &&
-	    [ "$(stat -c %a "$target")" = "$mode" ]; then
-		if [ -n "$dest" ] || [ "$(stat -c %u:%g "$target")" = 0:0 ]; then
-			continue
-		fi
-	fi
-	if [ -n "$dest" ]; then
-		install -D -m "$mode" "$source" "$target"
-	else
-		sudo install -D -o 0 -g 0 -m "$mode" "$source" "$target"
-	fi
-	changed=$((changed + 1))
-done < "$tmp/install.files"
+publish
 if [ -z "$dest" ]; then
 	for unit in $enable_units; do
 		sudo systemctl --system enable "$unit" ||
