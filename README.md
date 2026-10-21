@@ -17,6 +17,14 @@ autorandr; no necesita el gestor de ajustes de otro escritorio.
 La bandeja incluye batería (cbatticon) y volumen (pasystray); usa el audio existente,
 sin añadir políticas de suspensión ni arrancar un servidor PulseAudio.
 
+## Awesome (en preparación)
+
+Se prepara una sesión alternativa con configuración Lua propia, sin sustituir
+Plasma/dwm ni activar nada. La opción futura explícita es
+`sh scripts/install.sh --awesome`; `make install` conserva la selección existente.
+La integración aún no está terminada: no instalar durante esta preparación.
+Ver [guía Awesome, validación y límites](docs/awesome.md).
+
 ## Instalar con el script
 
 Desde esta carpeta, **como usuario normal**, sin anteponer sudo:
