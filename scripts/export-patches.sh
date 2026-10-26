@@ -5,7 +5,7 @@ set -eu
 project=${1-}
 feature=${2-}
 case "$project" in
-dwm|dmenu|st) ;;
+dwm|dmenu|st|dwmblocks) ;;
 *) printf '%s\n' 'usage: make patch PROJECT=dwm FEATURE=name' >&2; exit 1 ;;
 esac
 case "$feature" in

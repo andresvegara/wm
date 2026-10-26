@@ -1,0 +1,32 @@
+diff --git a/keyboard.c b/keyboard.c
+index ce6dc2b..fe4a8a1 100644
+--- a/keyboard.c
++++ b/keyboard.c
+@@ -11,8 +11,8 @@ main(int argc, char **argv)
+ 	XkbStateRec state;
+ 	int opcode, event, error, major = XkbMajorVersion, minor = XkbMinorVersion;
+ 
+-	if (argc > 2 || (argc == 2 && strcmp(argv[1], "--toggle"))) {
+-		fputs("usage: wm-keyboard [--toggle]\n", stderr);
++	if (argc > 2 || (argc == 2 && strcmp(argv[1], "--toggle") && strcmp(argv[1], "--reset"))) {
++		fputs("usage: wm-keyboard [--toggle|--reset]\n", stderr);
+ 		return 1;
+ 	}
+ 	if (!(display = XOpenDisplay(NULL))) {
+@@ -20,13 +20,14 @@ main(int argc, char **argv)
+ 		return 1;
+ 	}
+ 	if (!XkbQueryExtension(display, &opcode, &event, &error, &major, &minor)
+-	|| XkbGetState(display, XkbUseCoreKbd, &state) != Success || state.group > 1) {
++	|| XkbGetState(display, XkbUseCoreKbd, &state) != Success
++	|| (state.group > 1 && (argc != 2 || strcmp(argv[1], "--reset")))) {
+ 		fputs("wm-keyboard: ES/US XKB state unavailable\n", stderr);
+ 		XCloseDisplay(display);
+ 		return 1;
+ 	}
+ 	if (argc == 2) {
+-		state.group = !state.group;
++		state.group = !strcmp(argv[1], "--reset") ? 0 : !state.group;
+ 		if (!XkbLockGroup(display, XkbUseCoreKbd, state.group)) {
+ 			fputs("wm-keyboard: cannot change group\n", stderr);
+ 			XCloseDisplay(display);

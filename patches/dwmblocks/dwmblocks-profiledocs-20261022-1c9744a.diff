@@ -1,0 +1,27 @@
+diff --git a/README.md b/README.md
+index 7d21e30..5658956 100644
+--- a/README.md
++++ b/README.md
+@@ -2,6 +2,22 @@
+ 
+ Modular status bar for dwm written in c.
+ 
++## wm session profile
++
++The local profile uses `wm-status` for keyboard, power profile, volume, battery,
++notification history/quiet status and the clock. dwm owns the bar/tray and
++statuscmd forwards block clicks. Power/battery clicks open Xfce Power Manager
++settings; the status process never applies automatic power policy. Notifications
++use Dunst's own history and pause state. Volume reuses wm-control.
++
++Each command has a coreutils timeout of six seconds plus a one-second kill grace.
++Reads are sequential: a slow command can delay other blocks up to that bound,
++not block the separate dwm process. Intervals and unique signal IDs are configured
++in config.h. The keyboard helper uses XKB. Runtime dependencies are packaged by
++the wm coordinator; this repository's Makefile builds only dwmblocks/wm-keyboard.
++
++The original project's notes and attribution follow.
++
+ # Modifying blocks
+ 
+ The statusbar is made from text output from commandline programs.  Blocks are

@@ -1,3 +1,4 @@
-dwm	git@github.com:andresvegara/dwm.git	e0aa7b809f5c068b447d9332df95d186122db2e4
-dmenu	git@github.com:andresvegara/dmenu.git	be2d9dc257e5091e4ef285660a11d0dac63bcd8a
-st	git@github.com:andresvegara/st.git	07748e40d93b0ad79494c7f6de39032bd569d179
+dwmblocks	git@github.com:andresvegara/dwmblocks.git	961519316d9c490731336c1814a04019e07f4bf3
+dwm	git@github.com:andresvegara/dwm.git	2c20ea6ddeddd6106948847ff4c937bf7bad8b2e
+dmenu	git@github.com:andresvegara/dmenu.git	7a26927443fdf6b77bbf5baaafeeed10247999ba
+st	git@github.com:andresvegara/st.git	60d8e86e0d22ee568e24d8416b6b256ae4485c3d

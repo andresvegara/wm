@@ -1,0 +1,79 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -3,19 +3,24 @@
+ PREFIX = /usr/local
+ CC = gcc
+ 
+-all: dwmblocks
++all: dwmblocks wm-keyboard
+ 
++wm-keyboard: keyboard.c
++	$(CC) $(CPPFLAGS) $(CFLAGS) keyboard.c $(LDFLAGS) -lX11 -o $@
++
+ dwmblocks: dwmblocks.o
+-	$(CC) dwmblocks.o -lX11 -o dwmblocks
++	$(CC) $(LDFLAGS) dwmblocks.o -lX11 -o dwmblocks
+ dwmblocks.o: dwmblocks.c config.h
+-	$(CC) -c dwmblocks.c
++	$(CC) $(CPPFLAGS) $(CFLAGS) -c dwmblocks.c
+ clean:
+-	rm -f *.o *.gch dwmblocks
+-install: dwmblocks
++	rm -f *.o *.gch dwmblocks wm-keyboard
++install: all
+ 	mkdir -p $(DESTDIR)$(PREFIX)/bin
+ 	cp -f dwmblocks $(DESTDIR)$(PREFIX)/bin
+ 	chmod 755 $(DESTDIR)$(PREFIX)/bin/dwmblocks
++	cp -f wm-keyboard $(DESTDIR)$(PREFIX)/bin/wm-keyboard
++	chmod 755 $(DESTDIR)$(PREFIX)/bin/wm-keyboard
+ uninstall:
+-	rm -f $(DESTDIR)$(PREFIX)/bin/dwmblocks
++	rm -f $(DESTDIR)$(PREFIX)/bin/dwmblocks $(DESTDIR)$(PREFIX)/bin/wm-keyboard
+ 
+ .PHONY: all clean install uninstall
+diff --git a/keyboard.c b/keyboard.c
+new file mode 100644
+index 0000000..ce6dc2b
+--- /dev/null
++++ b/keyboard.c
+@@ -0,0 +1,39 @@
++/* See LICENSE for copyright and license details. */
++#include <stdio.h>
++#include <string.h>
++#include <X11/Xlib.h>
++#include <X11/XKBlib.h>
++
++int
++main(int argc, char **argv)
++{
++	Display *display;
++	XkbStateRec state;
++	int opcode, event, error, major = XkbMajorVersion, minor = XkbMinorVersion;
++
++	if (argc > 2 || (argc == 2 && strcmp(argv[1], "--toggle"))) {
++		fputs("usage: wm-keyboard [--toggle]\n", stderr);
++		return 1;
++	}
++	if (!(display = XOpenDisplay(NULL))) {
++		fputs("wm-keyboard: cannot open display\n", stderr);
++		return 1;
++	}
++	if (!XkbQueryExtension(display, &opcode, &event, &error, &major, &minor)
++	|| XkbGetState(display, XkbUseCoreKbd, &state) != Success || state.group > 1) {
++		fputs("wm-keyboard: ES/US XKB state unavailable\n", stderr);
++		XCloseDisplay(display);
++		return 1;
++	}
++	if (argc == 2) {
++		state.group = !state.group;
++		if (!XkbLockGroup(display, XkbUseCoreKbd, state.group)) {
++			fputs("wm-keyboard: cannot change group\n", stderr);
++			XCloseDisplay(display);
++			return 1;
++		}
++	}
++	puts(state.group ? "US" : "ES");
++	XCloseDisplay(display);
++	return 0;
++}

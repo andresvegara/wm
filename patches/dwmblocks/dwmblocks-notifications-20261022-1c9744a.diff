@@ -1,0 +1,12 @@
+diff --git a/config.h b/config.h
+index c6e2466..c5c69b5 100644
+--- a/config.h
++++ b/config.h
+@@ -5,6 +5,7 @@ static const Block blocks[] = {
+ 	{ "", "timeout --kill-after=1 6 wm-status power",          5, 2 },
+ 	{ "", "timeout --kill-after=1 6 wm-status volume",         2, 3 },
+ 	{ "", "timeout --kill-after=1 6 wm-status battery",       15, 4 },
++	{ "", "timeout --kill-after=1 6 wm-status notifications",  5, 6 },
+ 	{ "", "timeout --kill-after=1 6 wm-status clock",          1, 5 },
+ };
+ static char *delim = " | ";
