@@ -1,5 +1,7 @@
 """Display manager with synthetic RandR/autorandr/menu only; forks touch temp files."""
 import copy
+from contextlib import redirect_stdout
+import io
 import os
 from pathlib import Path
 import signal
@@ -126,9 +128,17 @@ class World:
     def command(self, argv, env=None):
         with self.events.open("a") as log:
             log.write(repr(argv) + "\n")
+        if argv == ["xrandr", "--query"]:
+            assert env["LC_ALL"] == "C"
+            return "\n".join(line for line in self.current.read_text().splitlines()
+                             if line and not line[0].isspace())
         if argv == ["xrandr", "--verbose"]:
             assert env["LC_ALL"] == "C"
             return self.current.read_text()
+        if argv[0] == "awesome-client":
+            assert argv[1] in ("awesome.emit_signal('wm::displays::begin')",
+                               "awesome.emit_signal('wm::displays::finished')", "return wm_display_menu()")
+            return "boolean true" if argv[1] == "return wm_display_menu()" else ""
         if argv[0] == "xprop":
             assert argv[:7] == ["xprop", "-root", "-f", "_WM_DISPLAY_SETUP", "8s", "-set", "_WM_DISPLAY_SETUP"]
             assert argv[7] == "pending" or (len(argv[7]) == 64 and all(c in "0123456789abcdef" for c in argv[7]))
@@ -165,6 +175,12 @@ class World:
                 self.current.write_text(verbose([screen(x=100)]))
                 if self.fail_apply:
                     raise RuntimeError("synthetic partial apply failure")
+            return ""
+        if argv[0] == "wm-wallpaper":
+            assert argv == ["wm-wallpaper", "--restore"]
+            return ""
+        if argv[0] == "notify-send":
+            assert argv[1:3] == ["--app-name=wm", "Pantallas"]
             return ""
         raise AssertionError(("unmocked command", argv))
 
@@ -308,7 +324,8 @@ class Menu:
     terminated = False
 
     def __init__(self, argv, **kwargs):
-        assert argv[0] == "dmenu" and "-c" in argv and argv[-2:] == ["-m", "2"]
+        assert argv[0] == "rofi" and "-no-custom" in argv and "-format" in argv
+        assert argv[argv.index("-monitor") + 1] == "-5"
 
     def communicate(self, data=None, timeout=None):
         self.returncode = 0
@@ -393,74 +410,235 @@ previous = copy.deepcopy(edited)
 module.edit_output(edited, "HDMI-1", key, "2")
 assert edited == previous
 
-# Watcher debounce, no geometry loop, unknown cancel once, known reconnect.
+# RandR watcher: event debounce, no steady polling/menu, known reconnect and cleanup.
 class Done(Exception):
     pass
 
 
-initial_configure, initial_transaction, initial_sleep = module.configure, module.transaction, module.time.sleep
+initial_configure, initial_transaction = module.configure, module.transaction
 actions = []
-module.configure = lambda base, current, monitor=None: actions.append(("new", module.identity(current)))
+module.configure = lambda *args: (_ for _ in ()).throw(AssertionError("automatic configuration menu"))
 module.transaction = lambda base, current, apply, confirm, monitor=None: actions.append(("known", module.identity(current)))
-world.events.write_text("")
-sequence = iter([one, verbose([screen(x=500)]), two, two, two, one, one])
-world.current.write_text(one)
 
 
-def tick(seconds):
-    assert seconds == 2
-    try:
-        world.current.write_text(next(sequence))
-    except StopIteration:
-        raise Done
+class EventStream:
+    closed = False
+    def fileno(self):
+        return 123
+    def close(self):
+        self.closed = True
 
 
-module.time.sleep = tick
-try:
-    module.watch(base)
-except Done:
-    pass
-assert actions == [("known", key), ("new", module.identity(module.parse(two))), ("known", key)]
-published = [line for line in world.events.read_text().splitlines() if "'xprop'" in line]
-assert len(published) == 4  # stable initial, new, heartbeat, reconnect; no geometry loop
-world.events.write_text("")
-sequence = iter([one, one])
-actions.clear()
-with module.locked(base, "edit"):
+class Watcher:
+    def __init__(self, argv, **kwargs):
+        assert argv == ["wm-randr-watch"] and kwargs == {"stdout": subprocess.PIPE, "bufsize": 0}
+        self.stdout = EventStream()
+        self.terminated = False
+    def poll(self):
+        return None
+    def terminate(self):
+        self.terminated = True
+    def wait(self, timeout):
+        assert timeout == 2
+        return 0
+
+
+original_select, original_read = module.select.select, module.os.read
+watchers, waits = [], []
+
+
+def watch_sequence(values):
+    sequence = iter(values)
+    received = False
+    def wait(streams, write, exceptional, timeout):
+        nonlocal received
+        waits.append(timeout)
+        assert timeout in (None, 0.35)
+        if received:
+            received = False
+            assert timeout == 0.35
+            return [], [], []
+        try:
+            world.current.write_text(next(sequence))
+        except StopIteration:
+            raise Done
+        received = True
+        return streams, [], []
+    module.select.select = wait
+    module.os.read = lambda fd, length: b"change\n" if fd == 123 else original_read(fd, length)
+    module.subprocess.Popen = lambda argv, **kwargs: watchers.append(Watcher(argv, **kwargs)) or watchers[-1]
     try:
         module.watch(base)
     except Done:
         pass
+    assert watchers[-1].terminated and watchers[-1].stdout.closed
+
+
+world.events.write_text("")
+watch_sequence([one, verbose([screen(x=500)]), two, two, one])
+assert actions == [("known", key), ("known", key)]
+assert world.events.read_text().count("'notify-send'") == 1
+events = world.events.read_text().splitlines()
+assert len([line for line in events if "'xprop'" in line]) == 5
+wallpapers = [index for index, line in enumerate(events) if "'wm-wallpaper'" in line]
+assert len(wallpapers) == 5
+assert all("'xprop'" in events[index - 1] for index in wallpapers)
+assert waits[0] is None and waits[-1] is None  # Stable periods block on events, never poll RandR.
+world.events.write_text("")
+actions.clear()
+with module.locked(base, "edit"):
+    watch_sequence([one, one])
 assert not actions and "'xprop'" not in world.events.read_text()
+assert "'wm-wallpaper'" not in world.events.read_text()
 try:
     module.publish_window_setup("invalid")
     raise AssertionError("invalid setup signal accepted")
 except RuntimeError:
     pass
-world.current.write_text(one)
 world.events.write_text("")
 after = verbose([screen(x=100)])
-module.transaction = lambda *args, **kwargs: world.current.write_text(after)
-steps = 0
-
-
-def stable_tick(seconds):
-    global steps
-    assert seconds == 2
-    if steps == 1:
-        assert "'xprop'" not in world.events.read_text()  # changed geometry is not ready yet
-    steps += 1
-    if steps == 5:
-        raise Done
-
-
-module.time.sleep = stable_tick
-try:
-    module.watch(base)
-except Done:
-    pass
+module.transaction = lambda *args: world.current.write_text(after)
+watch_sequence([one])
 published = [line for line in world.events.read_text().splitlines() if "'xprop'" in line]
-assert len(published) == 2 and all(module.window_identity(module.parse(after)) in line for line in published)
-module.configure, module.transaction, module.time.sleep = initial_configure, initial_transaction, initial_sleep
+assert len(published) == 1 and module.window_identity(module.parse(after)) in published[0]
+module.select.select, module.os.read, module.subprocess.Popen = original_select, original_read, original_popen
+module.configure, module.transaction = initial_configure, initial_transaction
 module.choose, module.command = original_choose, original_command
-print("PASS: display parsing/layouts, private atomic profiles, locks, editor, watchdog rollback and hotplug (no X)")
+# Awesome reuses the same transactions/profiles without emitting dwm properties.
+module.command = world.command
+module.awesome_backend = True
+for choice, kept in ((True, True), (False, False), (None, False)):
+    world.current.write_text(one)
+    world.events.write_text("")
+    module.choose = lambda *args, selected=choice, **kwargs: selected
+    assert module.transaction(base, module.state(), lambda: world.command(["xrandr", "--test"]), True) == kept
+    assert world.current.read_text() == (verbose([screen(x=100)]) if kept else one)
+    assert "xprop" not in world.events.read_text()
+    assert "awesome-client" not in world.events.read_text()  # Lua initiator owns the transition.
+    assert not list(base.glob("rollback-*"))
+world.current.write_text(one)
+world.fail_apply = True
+try:
+    module.transaction(base, module.state(), lambda: world.command(["xrandr", "--test"]), True)
+    raise AssertionError("Awesome partial apply not reverted")
+except RuntimeError:
+    pass
+world.fail_apply = False
+assert world.current.read_text() == one
+
+# Reconcile applies a saved profile once per device transition, never opens a menu.
+module.choose = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("automatic menu"))
+world.current.write_text(verbose([screen(x=500)]))
+world.events.write_text("")
+status, devices, setup = module.reconcile(base).split()
+assert status == "known" and devices == key and len(setup) == 64
+assert "'--load'" in world.events.read_text() and "xprop" not in world.events.read_text()
+world.events.write_text("")
+assert module.reconcile(base, key).split()[1] == key
+assert "'--load'" not in world.events.read_text()
+world.current.write_text(two)
+world.events.write_text("")
+assert module.reconcile(base, key).startswith("unknown ")
+assert "'--load'" not in world.events.read_text() and "dmenu" not in world.events.read_text()
+world.current.write_text(one)
+
+# While dmenu waits, Awesome reads only cheap topology snapshots, not EDID.
+class SlowMenu(Menu):
+    def __init__(self, argv, **kwargs):
+        super().__init__(argv, **kwargs)
+        self.calls = 0
+        self.row = None
+
+    def communicate(self, data=None, timeout=None):
+        self.calls += 1
+        if data is not None:
+            self.row = data.splitlines()[0]
+        if self.calls < 4:
+            raise subprocess.TimeoutExpired("synthetic dmenu", timeout)
+        self.returncode = 0
+        return "0\n", ""
+
+
+module.choose = original_choose
+module.subprocess.Popen = SlowMenu
+world.events.write_text("")
+assert module.choose([("safe", "value")], "test", key, "2") == "value"
+events = world.events.read_text()
+assert events.count("'--verbose'") == 2 and events.count("'--query'") == 5
+assert module.topology()  # Nonempty; catches accidental backspace in the regex.
+
+class ChangedMenu(SlowMenu):
+    def communicate(self, data=None, timeout=None):
+        if self.calls == 1:
+            world.current.write_text(two)
+        return super().communicate(data, timeout)
+
+
+module.subprocess.Popen = ChangedMenu
+try:
+    module.choose([("safe", "value")], "test", key, "2")
+    raise AssertionError("Awesome menu accepted changed topology")
+except module.TopologyChanged:
+    pass
+world.current.write_text(one)
+
+class EDIDMenu(SlowMenu):
+    def communicate(self, data=None, timeout=None):
+        if self.calls == 2:
+            world.current.write_text(one.replace("01" * 16, "02" * 16))
+        return super().communicate(data, timeout)
+
+
+module.subprocess.Popen = EDIDMenu
+try:
+    module.choose([("safe", "value")], "test", key, "2")
+    raise AssertionError("cheap snapshot replaced final EDID validation")
+except module.TopologyChanged:
+    pass
+module.subprocess.Popen = original_popen
+world.current.write_text(one)
+
+# Exercise the real CLI dispatcher/lock with only synthetic processes and paths.
+previous_argv, previous_env = sys.argv[:], dict(os.environ)
+os.environ.update(DISPLAY=":synthetic", XDG_SESSION_TYPE="x11", XDG_CONFIG_HOME=str(work / "cli"))
+try:
+    for mode in ("inspect", "reconcile"):
+        sys.argv = [module.__file__, "--awesome", mode]
+        out = io.StringIO()
+        with redirect_stdout(out):
+            module.run()
+        assert out.getvalue().startswith("unknown " + key + " ")
+    cli_base = work / "cli/wm/displays"
+    with module.locked(cli_base, "edit"):
+        try:
+            module.run()
+            raise AssertionError("Awesome bypassed editor lock")
+        except module.Busy:
+            pass
+    called = []
+    module.configure = lambda *args: called.append(module.awesome_backend)
+    os.environ["XDG_CURRENT_DESKTOP"] = "awesome"
+    sys.argv = [module.__file__]
+    module.run()
+    assert not called and "return wm_display_menu()" in world.events.read_text()
+    sys.argv = [module.__file__, "--awesome", "native-edit"]
+    world.events.write_text("")
+    module.run()
+    assert called == [True] and module.native_editor
+    assert "awesome-client" not in world.events.read_text()
+    world.events.write_text("")
+    module.configure = lambda *args: (_ for _ in ()).throw(RuntimeError("synthetic editor failure"))
+    try:
+        module.run()
+        raise AssertionError("editor error ignored")
+    except RuntimeError:
+        pass
+    assert "awesome-client" not in world.events.read_text()
+finally:
+    sys.argv = previous_argv
+    os.environ.clear()
+    os.environ.update(previous_env)
+    module.configure = initial_configure
+    module.choose, module.command = original_choose, original_command
+    module.awesome_backend = False
+print("PASS: legacy + Awesome display profiles, locks, editor, cheap menu snapshots and watchdog rollback (no X)")

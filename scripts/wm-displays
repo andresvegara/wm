@@ -19,6 +19,14 @@ import time
 import uuid
 from contextlib import contextmanager
 
+from wm_session import rofi
+
+
+# Selected only by run(); imports and the dwm backend retain legacy semantics.
+awesome_backend = False
+native_editor = False
+request_serial = 0
+
 
 class TopologyChanged(Exception):
     pass
@@ -28,7 +36,14 @@ class Busy(Exception):
     pass
 
 
+class EditorCancelled(Exception):
+    pass
+
+
 def command(argv, env=None):
+    if argv in (["xrandr", "--verbose"], ["xrandr", "--query"]):
+        # Read cached RandR state; detection is driven by events, not reprobes.
+        argv = ["xrandr", "--current", *argv[1:]]
     result = subprocess.run(argv, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, timeout=20, umask=0o077)
     if result.returncode:
@@ -146,6 +161,8 @@ def window_identity(outputs):
 def publish_window_setup(value):
     if value != "pending" and not re.fullmatch(r"[0-9a-f]{64}", value):
         raise RuntimeError("identificador de disposición inválido")
+    if awesome_backend:
+        return
     command(["xprop", "-root", "-f", "_WM_DISPLAY_SETUP", "8s",
              "-set", "_WM_DISPLAY_SETUP", value])
 
@@ -365,13 +382,61 @@ def guard(fd, backup, expected, apply_timeout=45, confirm_timeout=15):
         shutil.rmtree(backup, ignore_errors=True)
 
 
+def topology():
+    # --query omits EDID/modes' verbose properties; used only while a menu is open.
+    text = command(["xrandr", "--query"], dict(os.environ, LC_ALL="C"))
+    return tuple(line for line in text.splitlines()
+                 if re.match(r"^\S+ (connected|disconnected|unknown connection)\b", line))
+
+
+def native_choose(options, prompt, expected, timeout):
+    global request_serial
+    request_serial += 1
+    serial = request_serial
+    initial = topology() if expected is not None else None
+    if expected is not None and identity(state()) != expected:
+        raise TopologyChanged("ha cambiado la combinación de pantallas")
+    print(json.dumps(dict(kind="choose", id=serial, prompt=prompt,
+                          items=[str(label).replace("\n", " ") for label, _ in options],
+                          timeout=timeout), ensure_ascii=False), flush=True)
+    deadline = time.monotonic() + timeout if timeout is not None else None
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            return None
+        if expected is not None and topology() != initial:
+            raise TopologyChanged("ha cambiado la combinación de pantallas")
+        readable, _, _ = select.select([sys.stdin], [], [], 0.25)
+        if not readable:
+            continue
+        line = sys.stdin.readline(4097)
+        if not line:
+            raise EditorCancelled
+        if len(line) > 4096 or not line.endswith("\n"):
+            raise RuntimeError("respuesta de interfaz inválida")
+        reply = json.loads(line)
+        if not isinstance(reply, dict) or reply.get("id") != serial:
+            continue
+        index = reply.get("index")
+        if index is None:
+            return None
+        if type(index) is not int or not 0 <= index < len(options):
+            raise RuntimeError("selección de pantalla inválida")
+        if expected is not None and identity(state()) != expected:
+            raise TopologyChanged("ha cambiado la combinación de pantallas")
+        return options[index][1]
+
+
 def choose(options, prompt, expected=None, monitor=None, timeout=None):
+    if native_editor:
+        return native_choose(options, prompt, expected, timeout)
     rows = {"{} · {}".format(str(label).replace("\n", " "), index): value
             for index, (label, value) in enumerate(options)}
-    argv = ["dmenu", "-c", "-i", "-l", "18", "-p", prompt,
-            "-fn", "Hack Nerd Font Mono:size=11"]
-    if monitor is not None:
-        argv += ["-m", monitor]
+    argv = rofi("-dmenu", "-i", "-no-custom", "-format", "i", "-p", prompt)
+    cheap = None
+    if awesome_backend and expected is not None:
+        if identity(state()) != expected:
+            raise TopologyChanged("ha cambiado la combinación de pantallas")
+        cheap = topology()
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
     deadline = time.monotonic() + timeout if timeout is not None else None
@@ -380,11 +445,19 @@ def choose(options, prompt, expected=None, monitor=None, timeout=None):
         while True:
             if deadline is not None and time.monotonic() >= deadline:
                 return None
-            if expected is not None and identity(state()) != expected:
-                raise TopologyChanged("ha cambiado la combinación de pantallas")
+            if expected is not None:
+                changed = topology() != cheap if awesome_backend else identity(state()) != expected
+                if changed:
+                    raise TopologyChanged("ha cambiado la combinación de pantallas")
             try:
                 stdout, _ = process.communicate(data, timeout=0.25)
-                return rows.get(stdout.removesuffix("\n")) if process.returncode == 0 else None
+                if awesome_backend and expected is not None and identity(state()) != expected:
+                    raise TopologyChanged("ha cambiado la combinación de pantallas")
+                selected = stdout.strip()
+                if process.returncode or not selected.isascii() or not selected.isdecimal():
+                    return None
+                index = int(selected)
+                return list(rows.values())[index] if index < len(rows) else None
             except subprocess.TimeoutExpired:
                 data = None
     finally:
@@ -556,51 +629,92 @@ def report(error, monitor=None):
 
 
 def watch(base, monitor=None):
-    seen = previous = None
-    while True:
-        try:
-            current = state()
-            key = identity(current)
-            marker = key, window_identity(current)
-            if marker == previous:
+    seen, pending = None, False
+    process = subprocess.Popen(["wm-randr-watch"], stdout=subprocess.PIPE, bufsize=0)
+    try:
+        while True:
+            readable, _, _ = select.select([process.stdout], [], [], 0.35 if pending else None)
+            if readable:
+                if not os.read(process.stdout.fileno(), 4096):
+                    raise RuntimeError("terminó el monitor de eventos RandR")
+                pending = True
+                continue
+            try:
                 with locked(base, "edit"):
-                    current = state()
-                    if (identity(current), window_identity(current)) != marker:
-                        raise TopologyChanged("pantallas cambiadas al comprobar estabilidad")
+                    current = settle()
+                    key = identity(current)
                     if key != seen:
-                        current = settle()
-                        if identity(current) != key:
-                            raise TopologyChanged("pantallas cambiadas al estabilizar salidas")
                         saved = profile(base, key)
                         if saved:
                             transaction(base, current,
                                         lambda: autorandr(base, "--load", saved, "--force"), False)
                         else:
-                            configure(base, current, monitor)
+                            command(["notify-send", "--app-name=wm", "Pantallas",
+                                     "Combinación sin perfil. Abre Pantallas para configurarla."])
                         seen = key
-                    current = state()
-                    if (identity(current), window_identity(current)) == marker:
-                        publish_window_setup(marker[1])
-            previous = marker
-        except Busy:
-            pass
-        except TopologyChanged:
-            previous = None
-        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-            if previous is not None and previous[0] != seen:
-                report(error, monitor)
-            else:
+                    publish_window_setup(window_identity(state()))
+                    command(["wm-wallpaper", "--restore"])
+                pending = False
+            except (Busy, TopologyChanged):
+                pending = True
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
                 print("wm-displays: {}".format(error), file=sys.stderr)
-            if previous is not None:
-                seen = previous[0]
-        time.sleep(2)
+                pending = False
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
+        process.stdout.close()
+
+
+@contextmanager
+def editor_signals(enabled):
+    if not enabled:
+        yield
+        return
+    try:
+        yield
+    finally:
+        command(["awesome-client", "awesome.emit_signal('wm::displays::finished')"])
+
+
+def reconcile(base, known=None):
+    current = settle()
+    key = identity(current)
+    saved = profile(base, key)
+    if saved and key != known:
+        if not transaction(base, current, lambda: autorandr(base, "--load", saved, "--force"), False):
+            raise RuntimeError("no se pudo cargar el perfil de pantallas")
+        current = state()
+        if identity(current) != key:
+            raise TopologyChanged("pantallas cambiadas al reconciliar")
+    return "{} {} {}".format("known" if saved else "unknown", key, window_identity(current))
 
 
 def run():
-    parser = argparse.ArgumentParser(description="Perfiles de pantallas X11 mediante dmenu")
+    global awesome_backend, native_editor
+    parser = argparse.ArgumentParser(description="Perfiles de pantallas X11")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("-m", dest="monitor")
+    parser.add_argument("--awesome", choices=("inspect", "reconcile", "edit", "native-edit"))
+    parser.add_argument("--known")
     options = parser.parse_args()
+    native_editor = options.awesome == "native-edit"
+    awesome_backend = bool(options.awesome) or "awesome" in os.environ.get(
+        "XDG_CURRENT_DESKTOP", "").lower().split(":")
+    if awesome_backend and options.awesome in (None, "edit") and not options.watch:
+        result = command(["awesome-client", "return wm_display_menu()"])
+        if result.strip() != "boolean true":
+            raise RuntimeError("no se pudo abrir el editor nativo de pantallas")
+        return
+    if options.known and not re.fullmatch(r"[0-9a-f]{64}", options.known):
+        parser.error("--known requiere un identificador de pantallas")
+    if options.watch and awesome_backend:
+        parser.error("Awesome usa señales nativas, no --watch")
     if not os.environ.get("DISPLAY") or os.environ.get("XDG_SESSION_TYPE", "x11") != "x11":
         raise RuntimeError("se necesita una sesión X11")
     base = private(Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wm/displays")
@@ -608,8 +722,17 @@ def run():
         with locked(base, "watch"):
             watch(base, options.monitor)
     else:
-        with locked(base, "edit"):
-            configure(base, settle(), options.monitor)
+        with editor_signals(awesome_backend and not native_editor and options.awesome not in ("inspect", "reconcile")):
+            with locked(base, "edit"):
+                if options.awesome == "inspect":
+                    current = state()
+                    key = identity(current)
+                    print("{} {} {}".format("known" if profile(base, key) else "unknown",
+                                           key, window_identity(current)), flush=True)
+                elif options.awesome == "reconcile":
+                    print(reconcile(base, options.known), flush=True)
+                else:
+                    configure(base, settle(), options.monitor)
 
 
 if __name__ == "__main__":
@@ -620,8 +743,14 @@ if __name__ == "__main__":
         signal.signal(sig, interrupt)
     try:
         run()
-    except (Busy, TopologyChanged, OSError, RuntimeError, subprocess.SubprocessError) as error:
-        report(error)
-        sys.exit(1)
+    except (Busy, TopologyChanged, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        if awesome_backend:
+            print("wm-displays: {}".format(error), file=sys.stderr)
+        else:
+            report(error)
+        sys.exit((3 if isinstance(error, Busy) else 4 if isinstance(error, TopologyChanged) else 1)
+                 if awesome_backend else 1)
+    except EditorCancelled:
+        sys.exit(0)
     except KeyboardInterrupt:
         sys.exit(130)
