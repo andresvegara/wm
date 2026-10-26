@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+# One private image, applied independently to each Xinerama monitor in fill mode.
+import argparse
+from contextlib import contextmanager
+import fcntl
+import os
+from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+
+from wm_session import open_private, private_directory
+
+DATA = Path(__file__).resolve().parent.parent / "share/wm"
+
+
+@contextmanager
+def image(path, private=False):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or not info.st_size:
+            raise ValueError("la imagen debe ser un archivo regular no vacío")
+        if private and (info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_nlink != 1):
+            raise ValueError("imagen guardada insegura")
+        yield source
+
+
+def apply(path):
+    if path is None:
+        argv = ["xsetroot", "-solid", "#f6f5f4"]
+    else:
+        with image(path):
+            pass
+        argv = ["feh", "--no-fehbg", "--bg-fill", "--", str(path)]
+    subprocess.run(argv, check=True, capture_output=True, timeout=20)
+
+
+def current(directory):
+    saved = directory / "wallpaper"
+    try:
+        with image(saved, private=True):
+            pass
+    except FileNotFoundError:
+        if saved.is_symlink():
+            raise ValueError("enlace no permitido para wallpaper")
+        default = DATA / "wallpaper.png"
+        if not default.exists() and not default.is_symlink():
+            return None
+        return default
+    return saved
+
+
+@contextmanager
+def locked():
+    base = Path(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"))
+    directory = base.resolve() / "wm/dwm"
+    private_directory(directory)
+    with open_private(directory / "wallpaper.lock") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield directory
+
+
+def set_wallpaper(path):
+    source_path = Path(path).expanduser().resolve(strict=True)
+    with locked() as directory:
+        previous = current(directory)
+        fd, name = tempfile.mkstemp(prefix="wallpaper-", dir=directory)
+        staged = Path(name)
+        try:
+            with os.fdopen(fd, "wb") as output, image(source_path) as source:
+                shutil.copyfileobj(source, output)
+                output.flush()
+                os.fsync(output.fileno())
+            try:
+                apply(staged)
+                os.replace(staged, directory / "wallpaper")
+            except (OSError, subprocess.SubprocessError):
+                try:
+                    apply(previous)
+                except (OSError, ValueError, subprocess.SubprocessError) as rollback:
+                    raise RuntimeError("no se guardó el fondo y falló la restauración: " + str(rollback))
+                raise
+        finally:
+            staged.unlink(missing_ok=True)
+
+
+def run():
+    parser = argparse.ArgumentParser(description="Fondo común persistente en fill")
+    parser.add_argument("--restore", action="store_true")
+    options = parser.parse_args()
+    if options.restore:
+        with locked() as directory:
+            apply(current(directory))
+        return
+    result = subprocess.run(["zenity", "--file-selection", "--title=Fondo de pantalla",
+                             "--file-filter=Imágenes | *.png *.jpg *.jpeg *.webp *.bmp *.gif *.tif *.tiff",
+                             "--file-filter=Todos los archivos | *"],
+                            capture_output=True, text=True, encoding="utf-8")
+    if result.returncode == 1:
+        return
+    if result.returncode or not result.stdout:
+        raise RuntimeError("no se pudo seleccionar una imagen")
+    set_wallpaper(result.stdout.removesuffix("\n"))
+
+
+if __name__ == "__main__":
+    try:
+        run()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        message = "wm-wallpaper: " + str(error)
+        print(message, file=sys.stderr)
+        try:
+            subprocess.run(["wm-run", "--error", "Fondo de pantalla", message], timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        sys.exit(1)
