@@ -176,13 +176,17 @@ mínimo de hardware de 1; no controla DDC ni LEDs del teclado.
 Dunst conserva hasta cien avisos y los OSD no entran en el historial. «Notificaciones»
 permite recuperar un aviso, vaciar historial y activar No molestar con nivel50;
 los críticos y OSD tienen una excepción superior. No existe otro motor de historial.
+El clic izquierdo ejecuta la acción de la notificación y después la cierra. Abrir
+la conversación concreta requiere que la aplicación publique esa acción; no se
+adivina el chat a partir del texto ni se ejecuta su contenido como un comando.
 Volumen y brillo sustituyen el OSD del mismo canal y muestran el estado real.
 
 ## Energía y bloqueo
 
-Se requiere **Xfce Power Manager 4.20 o posterior**. Se arranca sin `--daemon`:
-en esa versión permanece en primer plano por defecto. Es un hijo crítico del
-supervisor, sin autostart XDG global ni escritorio Xfce.
+La integración energética requiere **Xfce Power Manager 4.20 o posterior**.
+Se arranca sin `--daemon`: en esa versión permanece en primer plano por defecto,
+sin autostart XDG global ni escritorio Xfce. Si falta, su versión no es compatible
+o falla su configuración, se deshabilita ese complemento sin cerrar dwm.
 Sus preferencias son las normales de xfconf y se comparten con una posible sesión
 Xfce del mismo usuario. La configuración se realiza al iniciar wm, no al instalar.
 
@@ -306,12 +310,33 @@ No activar simultáneamente otro servicio autorandr que aplique perfiles.
 
 ## Arranque, instalación y validación
 
-El supervisor posee solo sus hijos/grupos; verifica WM/bandeja, notificaciones,
-XSettings y gestor energético antes de continuar. Reutiliza secretos/SSH existentes;
-si faltan, solicita sockets GNOME Keyring/GCR sin habilitarlos persistentemente.
-No copia credenciales, altera PAM ni bloquea el llavero al bloquear la pantalla.
+El supervisor posee solo sus hijos/grupos. dwm y el bloqueador son críticos;
+los fallos de notificaciones, bandeja, compositor, indicadores, applets, portapapeles,
+agente de autorización, energía y observador de pantallas no cierran el escritorio,
+ni siquiera si no pueden arrancar. Cada complemento dispone de hasta tres reinicios
+por sesión, separados al menos cinco segundos. Agotados, permanece deshabilitado.
+Si no puede limpiar su grupo, no lo duplica intentando reiniciarlo.
 
-El log queda en `$XDG_CACHE_HOME/wm/session-<pantalla>.log`. El instalador rechaza
+XSettings también es complementario, pero no se reinicia automáticamente: las
+aplicaciones ya iniciadas conservan su PID para actualizar la apariencia. Su fallo
+queda registrado y puede impedir cambios de tema hasta volver a entrar en sesión.
+Reutiliza secretos/SSH existentes; si faltan, solicita sockets GNOME Keyring/GCR
+sin habilitarlos persistentemente. Si falla esa solicitud, registra la pérdida de
+funcionalidad sin cerrar dwm. No copia credenciales, altera PAM ni bloquea el llavero
+al bloquear la pantalla.
+
+Los errores fatales devuelven código de sesión 2, no el código 1 que SDDM reserva
+para autenticación y que impide reiniciar la pantalla de acceso. No se abre un aviso
+gráfico que retrase el cierre ni se mata Xorg como alternativa. Cerrar sesión sigue
+requiriendo confirmación y un `XDG_SESSION_ID` explícito: `wm-supervisor --logout`
+publica una petición privada para ese identificador y el supervisor sale normalmente
+en el siguiente ciclo de supervisión (habitualmente un segundo, salvo que esté
+esperando el arranque o recuperación de un componente).
+No se usa `loginctl terminate-session`, que puede matar también al helper de SDDM.
+Las peticiones antiguas o de otro identificador no cierran la nueva sesión.
+
+El log queda en `$XDG_CACHE_HOME/wm/session-<pantalla>.log`; la sesión anterior se
+conserva en el mismo nombre con sufijo `.previous`, ambos privados. El instalador rechaza
 symlinks en destinos, prepara builds/copias en temporales y no activa la sesión
 ni servicios. Actualizar fuentes, helpers y configuración conjuntamente y entrar
 de nuevo en wm: un dwm antiguo no entiende la nueva propiedad de apariencia.
@@ -330,6 +355,7 @@ Una suite verde no garantiza ausencia de errores de integración o de hardware.
 
 - [Rofi: modos](https://davatorium.github.io/rofi/current/rofi.1/)
 - [Rofi: scripts y selección](https://davatorium.github.io/rofi/current/rofi-script.5/)
+- [Dunst: acciones y clics](https://dunst-project.org/documentation/)
 - [Dunst: historial, pausa y recarga](https://dunst-project.org/documentation/dunstctl/)
 - [Xfce Power Manager](https://docs.xfce.org/xfce/xfce4-power-manager/preferences)
 - [Arranque en primer plano y opciones reales de 4.20](https://github.com/xfce-mirror/xfce4-power-manager/blob/xfce-4.20/src/xfpm-main.c)
@@ -337,6 +363,8 @@ Una suite verde no garantiza ausencia de errores de integración o de hardware.
 - [xss-lock](https://man.archlinux.org/man/xss-lock.1.en)
 - [i3lock](https://github.com/i3/i3lock/blob/main/i3lock.1)
 - [xsettingsd](https://man.archlinux.org/man/xsettingsd.1.en)
+- [SDDM: códigos del helper](https://github.com/sddm/sddm/blob/v0.21.0/src/auth/Auth.h)
+- [SDDM: retorno al acceso según código de salida](https://github.com/sddm/sddm/blob/v0.21.0/src/daemon/Display.cpp)
 - [Bluebird](https://github.com/shimmerproject/Bluebird)
 - [autorandr](https://github.com/phillipberndt/autorandr)
 - [systray](https://dwm.suckless.org/patches/systray/)
