@@ -16,6 +16,15 @@ assert "shadow = false;" in picom
 assert 'blur-method = "none";' in picom
 assert "blur-background = false;" in picom
 assert "blur-background-frame = false;" in picom
+
+
+def check_notification_click(text):
+    config = configparser.ConfigParser(interpolation=None)
+    config.read_string(text)
+    assert config["global"]["mouse_left_click"] == "do_action, close_current"
+
+
+check_notification_click((root / "session/dunstrc").read_text())
 sys.path.insert(0, str(root / "scripts"))
 import wm_session as shared
 
@@ -144,11 +153,10 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
          patch.object(sys, "argv", ["wm-appearance", "--prepare", str(directory)]):
         app.run()
         assert (directory / "theme").read_text() == "bluebird\n" and not saved.exists()
+        check_notification_click((directory / "dunstrc").read_text())
         for profile in profiles.values():
             with patch.object(app, "resources", return_value=("Adwaita", "Adwaita")):
-                config = configparser.ConfigParser(interpolation=None)
-                config.read_string(app.render(profile)["dunstrc"])
-                assert config["global"]["mouse_left_click"] == "do_action, close_current"
+                check_notification_click(app.render(profile)["dunstrc"])
         assert (directory / "rofi.rasi").read_text() == (root / "session/rofi.rasi").read_text()
         for file in directory.iterdir():
             assert file.stat().st_mode & 0o777 == 0o600
@@ -158,6 +166,7 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
              patch.object(os, "kill") as kill:
             app.apply(directory, profiles[default], profiles[default])
             assert saved.read_text() == "bluebird\n"
+            check_notification_click((directory / "dunstrc").read_text())
             assert calls[0] == ["dunstctl", "reload", str(directory / "dunstrc")]
             assert calls[1][-1] == "#f7f7f7 #212936 #909090 #f5f5f5 #7e9ebd #7e9ebd"
             kill.assert_called_once()

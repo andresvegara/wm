@@ -88,6 +88,7 @@ Filenames use `dwm-<feature>-YYYYMMDD-bca7cf2.diff`. The order is:
 | csdresizedocs | Document complete pointer move/resize behavior and remaining limits. |
 | ewmhmaximize | Standard independent/combined EWMH maximize axes sharing placement restore. |
 | ewmhmaximizedocs | Document application maximize requests and manual state clearing. |
+| activewindowformat | Reject malformed external activation without restoring or focusing. |
 
 These are ordered patches, not interchangeable standalone patches.
 Titlebaroption requires titlebarconfig and the earlier titlebar patch; taskbar
@@ -124,6 +125,10 @@ The taskbar is original project code, informed by the behavior described in the
 from that patch is copied or required. Rofi is already a session dependency.
 Applications remain standard desktop entries and extra actions use the documented
 wm/dwm/menu.json file. No additional panel or menu dependency is introduced.
+Activewindowformat follows ewmhmaximizedocs and hardens the existing activation
+handler; it does not map notification text to windows. It preserves cross-monitor
+restoration, MRU and above/fullscreen stacking. EWMH is the protocol reference.
+
 Ewmhmaximize follows csdresizedocs and reuses the existing placement and drag
 lifecycle; ewmhmaximizedocs contains documentation only. It is original code
 based on the EWMH specification, not an application-specific click interceptor.

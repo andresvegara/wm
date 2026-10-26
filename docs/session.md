@@ -192,9 +192,16 @@ mínimo de hardware de 1; no controla DDC ni LEDs del teclado.
 Dunst conserva hasta cien avisos y los OSD no entran en el historial. «Notificaciones»
 permite recuperar un aviso, vaciar historial y activar No molestar con nivel50;
 los críticos y OSD tienen una excepción superior. No existe otro motor de historial.
-El clic izquierdo ejecuta la acción de la notificación y después la cierra. Abrir
-la conversación concreta requiere que la aplicación publique esa acción; no se
-adivina el chat a partir del texto ni se ejecuta su contenido como un comando.
+El clic izquierdo ejecuta `do_action, close_current`, también con los temas
+generados. Dunst emite `ActionInvoked` por D-Bus hacia la aplicación: esa acción
+no identifica una ventana. La aplicación decide qué conversación abrir y debe
+solicitar la activación de su ventana. Ante `_NET_ACTIVE_WINDOW` válido (formato 32),
+dwm restaura una ventana minimizada, la enfoca y eleva en su propio monitor sin
+trasladarla ni mover el cursor, respetando MRU y las capas encima/fullscreen.
+Sin acción o sin solicitud de activación no se garantiza abrir ni enfocar nada.
+No se adivina la ventana o el chat por título, nombre o texto, ni se ejecuta el
+contenido del aviso como comando. Recuperar un aviso del historial no reconstruye
+acciones caducadas ni revive la aplicación que las atendía.
 Volumen y brillo sustituyen el OSD del mismo canal y muestran el estado real.
 
 ## Energía y bloqueo

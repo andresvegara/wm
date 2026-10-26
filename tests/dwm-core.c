@@ -107,7 +107,7 @@ static int keyboardgrabfail, keyboardungrabs;
 static KeySym testkey;
 static char heldkeys[32];
 static int pointergrabs, pointerungrabs, pointergrabfail, pointerok;
-static int pointerx, pointery;
+static int pointerx, pointery, pointerwarps;
 static unsigned int pointermask;
 
 int
@@ -130,6 +130,7 @@ int
 XWarpPointer(Display *display, Window source, Window destination,
 	int x, int y, unsigned int width, unsigned int height, int destx, int desty)
 {
+	pointerwarps++;
 	return 1;
 }
 
@@ -490,7 +491,7 @@ reset(void)
 	stateextra = 0;
 	assert(!movingwin);
 	moveeventcount = moveeventindex = 0;
-	putbackevents = pointergrabs = pointerungrabs = pointergrabfail = 0;
+	putbackevents = pointergrabs = pointerungrabs = pointergrabfail = pointerwarps = 0;
 	pointerok = True;
 	pointerx = monitor.wx + 1;
 	pointery = monitor.wy + 1;
@@ -1293,6 +1294,7 @@ testfocus(void)
 	assert(replayevents == 1 && raised == second.win);
 	focus(&first);
 	assert(monitor.sel == &first);
+	event.xclient.format = 32;
 	event.xclient.window = second.win;
 	event.xclient.message_type = netatom[NetActiveWindow];
 	clientmessage(&event);
@@ -1593,6 +1595,7 @@ testminimize(void)
 	assert(monitor.sel == &second && focused == second.win);
 	focus(&first);
 	assert(monitor.sel == &second);
+	event.xclient.format = 32;
 	event.xclient.window = first.win;
 	event.xclient.message_type = netatom[NetActiveWindow];
 	clientmessage(&event);
@@ -1621,6 +1624,67 @@ testminimize(void)
 }
 
 static void
+testnotificationactivation(void)
+{
+	Client above;
+	XEvent event;
+	unsigned long serial;
+	int layer, format;
+
+	for (layer = 0; layer < 3; layer++) {
+		reset();
+		other = monitor;
+		other.mx = other.wx = 1;
+		other.next = NULL;
+		monitor.next = &other;
+		second = first;
+		second.win = 20;
+		second.x = 100;
+		second.mon = &other;
+		second.isabove = layer == 1;
+		second.isfullscreen = layer == 2;
+		above = second;
+		above.win = 30;
+		above.isabove = 1;
+		above.isfullscreen = 0;
+		second.next = second.snext = &above;
+		other.clients = other.stack = &second;
+		other.sel = &above;
+		focus(&above);
+		focus(&first);
+		hideclient(&second);
+		serial = focusserial;
+		event = (XEvent){0};
+		event.xclient.window = second.win;
+		event.xclient.message_type = netatom[NetActiveWindow];
+		for (format = 0; format <= 16; format += 8) {
+			event.xclient.format = format;
+			clientmessage(&event);
+			assert(second.ishidden && !traymapped[second.win]);
+			assert(selmon == &monitor && focused == first.win);
+			assert(focusserial == serial && other.stack == &above);
+		}
+		event.xclient.format = 32;
+		clientmessage(&event);
+		assert(!second.ishidden && traymapped[second.win]);
+		assert(selmon == &other && other.sel == &second && focused == second.win);
+		assert(second.mon == &other && first.mon == &monitor);
+		assert(other.clients == &second && second.next == &above);
+		assert(monitor.clients == &first && !first.next);
+		assert(second.x == 100 && second.y == 100 && second.w == 601 && second.h == 401);
+		assert(other.stack == &second && second.snext == &above && !above.snext);
+		assert(second.focused == serial + 1 && first.focused < second.focused);
+		assert(above.focused < first.focused);
+		assert(raised == (layer ? second.win : above.win));
+		assert(!pointerwarps && pointerx == monitor.wx + 1 && pointery == monitor.wy + 1);
+		/* Repeated activation must not manufacture another MRU transition. */
+		clientmessage(&event);
+		assert(focusserial == serial + 1 && !pointerwarps);
+	}
+	puts("PASS: format32 activation restores on original monitor, MRU, above/fullscreen and no pointer warp (mock Xlib)");
+}
+
+static void
 testcrossfocus(void)
 {
 	Client third;
@@ -1636,6 +1700,7 @@ testcrossfocus(void)
 	third = second;
 	third.win = 30;
 	second.next = second.snext = &third;
+	event.xclient.format = 32;
 	event.xclient.window = third.win;
 	event.xclient.message_type = netatom[NetActiveWindow];
 	clientmessage(&event);
@@ -1684,6 +1749,7 @@ testmonitors(void)
 	second.win = 20;
 	second.mon = &other;
 	other.sel = other.clients = other.stack = &second;
+	event.xclient.format = 32;
 	event.xclient.window = second.win;
 	event.xclient.message_type = netatom[NetActiveWindow];
 	clientmessage(&event);
@@ -2090,6 +2156,7 @@ main(void)
 	testalttab();
 	testabove();
 	testminimize();
+	testnotificationactivation();
 	testcrossfocus();
 	testmonitors();
 	testdock();
