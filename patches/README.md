@@ -56,8 +56,45 @@ Filenames use `dwm-<feature>-YYYYMMDD-bca7cf2.diff`. The order is:
 | systray | Native XEmbed tray, primary RandR status placement and bar stacking. |
 | barprofile | Personal config: show the existing bottom bar on every monitor. |
 | systraydocs | Document the native bar, bridge, clock and ownership handshake. |
+| statuscmd | Forward status-block clicks to the registered dwmblocks PID. |
+| commandbinding | Personal Super+D command-launcher binding. |
+| bluebird | Personal default palette: Bluebird panel/selection/borders. |
+| runtimecolors | Validated six-color root property for external appearance updates. |
+| externalmenus | Personal Rofi window/session bindings, including root right-click. |
+| bluebirddocs | Document the default palette and external color protocol. |
+| externalmenudocs | Document external menus/window selector and dwmblocks status. |
+| clickraise | Catch and replay plain left clicks even after pointer focus. |
+| minimize | Managed hidden state, geometry retention and EWMH activation restore. |
+| alwaysontop | Independent above state, preserving unrelated EWMH states. |
+| alttab | Native global MRU snapshot, Alt release, cancellation and closed-client removal. |
+| titlebar | Classic per-client decorations, geometry, gradient text and window action menu. |
+| windowbindings | Personal Alt+Tab, Super+H/T/F1 bindings. |
+| globalfocus | Record global MRU transitions even between previously selected monitor clients. |
+| minimizeinterop | Real iconification, queued UnmapNotify handling and map-request restoration. |
+| abovestack | Enforce above layers even on a monitor with no selected client. |
+| classicwindowdocs | Document classic titlebars, minimization, MRU and shortcut help. |
+| clickonly | Supersede pointer focus: click selects windows/monitors, root uses event coordinates. |
+| titlemodifiers | Plain right-click opens the title menu; modified clicks use client bindings. |
+| clickonlydocs | Document click-only focus and titlebar modifier behavior. |
+| titlebarconfig | Personal default: showtitlebar disabled. |
+| titlebaroption | Honor showtitlebar when initializing decoration height. |
+| taskbar | Replace tags/layout/selected title with Inicio and per-monitor ungrouped tasks. |
+| startconfig | Personal Inicio button binding to wm-launcher --start. |
+| taskbartitles | Refresh task titles even for unfocused/minimized clients. |
+| taskbardocs | Document optional titlebars, Inicio, tasks and extensible launcher. |
 
 These are ordered patches, not interchangeable standalone patches.
+Titlebaroption requires titlebarconfig and the earlier titlebar patch; taskbar
+reuses minimize/minimizeinterop, statuscmd and systray rather than adding a second
+hiding mechanism. Startconfig requires taskbar and the coordinator's launcher
+with --start. Taskbartitles follows taskbar; taskbardocs describes that final
+profile. Tags/layouts remain available internally; only their bar UI is removed.
+
+The taskbar is original project code, informed by the behavior described in the
+[community awesomebar patch](https://dwm.suckless.org/patches/awesomebar/); no code
+from that patch is copied or required. Rofi is already a session dependency.
+Applications remain standard desktop entries and extra actions use the documented
+wm/dwm/menu.json file. No additional panel or menu dependency is introduced.
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
 integrates with placement state, center uses floating restoration, and monitor
 placement integrates with snap/fullscreen restoration and cross-monitor focus.
@@ -117,6 +154,44 @@ and cycles existing windows, but can open one when only a background process is
 running. It depends on the coordinator's `thunar` dependency. Thunardocs follows
 thunar and only updates the manual. No file associations or Plasma defaults change.
 
+### Classic floating-window controls
+
+These patches follow externalmenudocs and depend on the complete preceding
+focus, docks, placement/fullscreen and runtime-color series. They are not
+standalone patches. Windowbindings depends at runtime on the coordinator's
+wm-launcher --shortcuts help; Rofi remains an optional window-selection path in
+the launcher, but is no longer the Alt+Tab engine. The bottom bar is unchanged.
+Clickonly supersedes pointerfocus and leaves only title-button hover handling in
+MotionNotify. Titlemodifiers preserves Super+drag bindings on decorations, without
+opening the menu or pressing titlebar buttons. These latest changes were prepared
+without running or updating tests, as explicitly requested; historical pointer
+focus expectations remain pending until the user resumes test work.
+Minimizeinterop completes real ICCCM iconification and handles both root/client
+UnmapNotify events, including restoration before those queued events arrive.
+Globalfocus and abovestack complete multi-monitor focus/layer interactions.
+
+Titlebar uses a separate override-redirect decoration window beside each client,
+kept adjacent in stacking order, without reparenting client windows. Outer
+geometry includes its height; size hints still describe the application's
+content. Fullscreen hides decorations and preserves its own return rectangle.
+Motif no-title and GTK client-frame indications are checked at manage time.
+Its context menu and Alt+Tab share only the native popup/event handling, not a
+second window manager or an external control protocol.
+
+Visual reference: [Bluebird Metacity](https://github.com/shimmerproject/Bluebird/tree/master/metacity-1),
+by Oleg Olegovich / Shimmer Project. The implementation uses the theme's published
+color values and an original gradient/symbol rendering; no GPL theme images,
+XML, or community titlebar code are copied. It is an adaptation, not pixel-exact
+Cinnamon decoration support. The inspected
+[community titlebar patch](https://github.com/drvptr/dwm-titlebar-patch) was not
+applied: its restore function is defective and its maximize-labelled button
+actually toggles floating mode. Existing source licenses remain unchanged.
+
+Tests call real WM event/state/geometry functions with synthetic clients, and
+real drw_text with substitute Xlib/Xft to check transparent gradient text and
+ellipsis. No X server or graphical process runs. Rendering, application-specific
+CSD behavior and installed-session interactions still need visual verification.
+
 ### Native tray adaptation
 
 Systray follows windowsetupdocs and reconciles the existing docks, focus,
@@ -153,6 +228,46 @@ space. Its default follows the selected monitor. This version instead:
 Tests exercise real tray/event functions with synthetic Xlib/RandR state under
 ASan/UBSan, plus mocked supervisor readiness/clock and installer packaging in
 `make test`. They do not establish graphical compatibility of real applets.
+
+### External session integration
+
+Statuscmd adapts the community [statuscmd patch](https://dwm.suckless.org/patches/statuscmd/),
+with the original retained in upstream/dwm and its checksum. The local integration
+uses the registered dwmblocks PID and the existing primary-monitor status/tray
+layout. Commandbinding, bluebird and externalmenus are personal configuration,
+not independent upstream features.
+
+Runtimecolors follows bluebird/statuscmd and accepts `_WM_THEME` only as a UTF8
+property containing exactly six `#RRGGBB` colors separated by spaces: normal
+foreground/background/border, selected foreground/background/border. It replaces
+both schemes, releases old Xft colors, updates client borders and redraws tray/bar.
+The external helper owns GTK/icon settings, persistence and consumer rollback;
+no JSON parser or desktop-settings service is added to dwm. Malformed properties
+are ignored. Code and profile documentation are separate patches.
+
+## dwmblocks series
+
+Apply `dwmblocks/series` in order to its recorded local import. Buildall adds the
+explicit `all` target before any feature so every prefix can be built. Keyboard
+then extends that target rather than introducing it: this repairs the unpublished
+series' build dependency without changing Git history or original import files.
+Projects without config.def.h retain their tracked config.h during validation
+and packaging; the test runner must not delete their only configuration.
+
+| Feature | Scope |
+| --- | --- |
+| buildall | Build target needed by prefix validation. |
+| safety | Bounded status buffers, signal/event handling and owned click processes. |
+| keyboard | XKB helper and build integration. |
+| profile | Personal wm-status blocks. |
+| keyboardreset | Explicit initial keyboard group reset. |
+| boundedcommands | Personal timeouts around each external status command. |
+| notifications | Personal Dunst history/quiet status block. |
+| profiledocs | Document helpers, click behavior and sequential-read limits. |
+
+The timeouts prevent indefinite helper waits; reads remain sequential and are not
+advertised as asynchronous. Power policy and notification history belong to
+external applications, not this bar process. No additional panel is introduced.
 
 ## dmenu series
 

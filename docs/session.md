@@ -1,348 +1,343 @@
 # Sesión wm (X11)
 
-wm combina dwm, dmenu y st en una sesión independiente de Plasma. No reemplaza
-ni desinstala Plasma, no importa sus preferencias y no necesita ejecutar KWin.
-La apariencia Adwaita/Fusion se limita a los descendientes de la sesión wm.
+Dwm gestiona ventanas, barra y bandeja; dwmblocks muestra indicadores. Rofi,
+Dunst, Xfce Power Manager, xsettingsd y las herramientas de sesión resuelven el
+resto. No se ejecuta el escritorio Xfce completo ni otro gestor de ventanas.
+Bluebird es el tema predeterminado. Alacritty es la terminal; st y dmenu siguen
+incluidos como alternativas, no como la interfaz principal.
 
-El instalador incluye el supervisor, los defaults y el registro X11 en SDDM.
-La validación es sintética, no una prueba visual ni de autenticación real.
-Las instrucciones de instalación conjunta y por componente están en el
-[README](../README.md). Conservar Plasma como alternativa para la primera prueba.
+Los cambios se preparan en fuentes: el instalador no inicia la sesión ni los
+servicios. La validación automatizada no es una prueba visual, de autenticación
+ni de suspensión real. Ver [instalación y dependencias](../README.md).
 
-## Uso y atajos
+## Atajos
 
-Super es la tecla Windows. Se conserva un solo escritorio, ventanas flotantes y
-foco siguiendo el cursor entre ventanas y monitores, también sobre el fondo
-vacío. Los docks no reciben foco. Pasar el cursor no levanta ni mueve ventanas;
-el clic sí las levanta. Los atajos abren ventanas nuevas/dmenu en el monitor
-activo; jumpapp enfoca las existentes donde estén, sin trasladarlas.
+Super es la tecla Windows. Un tag y ventanas flotantes por defecto. El foco cambia
+con el clic: mover el cursor no cambia la ventana ni el monitor activos; el clic
+normal enfoca y eleva. Los docks no reciben foco. Jumpapp conserva las ventanas existentes
+en su monitor; las normales nuevas aparecen centradas y los diálogos usan el
+monitor del padre. Fullscreen/docks conservan sus reglas de colocación.
 
 | Atajo | Acción |
 | --- | --- |
-| Super+Espacio | Lanzador combinado |
-| Super+Intro | Abrir/enfocar/alternar ventanas de Alacritty con jumpapp |
-| Super+W / Super+Shift+W | Brave / Chromium con jumpapp |
-| Super+E | Thunar con jumpapp (abre/enfoca/alterna ventanas) |
-| Super+Shift+M | Spotify con jumpapp |
-| Super+Shift+C | Mostrar CopyQ |
+| Super+Espacio | Rofi: aplicaciones, ventanas y acciones |
+| Super+D | Comando libre con sugerencias de PATH, ejecutado en Alacritty |
+| Alt+Tab / Alt+Shift+Tab | Selector nativo MRU global; soltar Alt activa, Escape cancela |
+| Super+H / Super+T | Minimizar / alternar siempre encima |
+| Super+F1 | Ayuda de atajos buscable en Rofi |
+| Super+Escape / clic derecho en el fondo | Menú de acciones de sesión |
+| Super+Intro | Abrir/enfocar/alternar Alacritty con Jumpapp |
+| Super+W / Super+Shift+W | Brave / Chromium |
+| Super+E | Thunar (`jumpapp -n -f thunar`) |
+| Super+Shift+M / Super+Shift+C | Spotify / CopyQ |
 | Super+flechas | Mitades; combinar ejes para cuartos; repetir libera el eje |
-| Super+M | Maximizar/restaurar, sin confundir con fullscreen |
-| Super+F | Fullscreen/restaurar |
-| Super+Ñ | Centrar |
+| Super+M / Super+F / Super+Ñ | Maximizar / fullscreen / centrar |
 | Super+Shift+izquierda/derecha | Mover a otro monitor |
-| Alt+Tab / Alt+Shift+Tab | Ventana siguiente/anterior |
-| Super+Q / Ctrl+Q / Alt+F4 | Pedir cierre normal; no matar aplicaciones sin WM_DELETE_WINDOW |
+| Super+Q / Ctrl+Q / Alt+F4 | Solicitar cierre normal mediante WM_DELETE_WINDOW |
 | Super+arrastrar con botón izquierdo/derecho | Mover/redimensionar |
 | Super+Inicio / tecla reproducir | Pausar/reanudar |
-| Tecla pausa / detener | Pausar / detener |
-| Super+Shift+RePág / tecla pista anterior | Pista anterior |
-| Super+Shift+AvPág / tecla pista siguiente | Pista siguiente |
-| Super+RePág / tecla subir volumen | Subir volumen 5 %, máximo 100 % |
-| Super+AvPág / tecla bajar volumen | Bajar volumen 5 % |
-| Super+Fin / tecla silencio | Alternar silencio |
-| Teclas de brillo | Subir/bajar retroiluminación 5 % |
-| Impr Pant | Captura interactiva de Flameshot, sin guardado automático |
-| Super+L | Acción «Bloquear» del lanzador |
+| Super+Shift+RePág / Super+Shift+AvPág | Pista anterior/siguiente |
+| Super+RePág / Super+AvPág / Super+Fin | Volumen +5% / -5% / silencio |
+| Teclas multimedia y brillo | Controles habituales |
+| Impr Pant / Super+L | Flameshot / bloquear esta sesión |
 
-Los extras de reproducción/volumen reproducen las combinaciones elegidas en
-Plasma sin modificar su configuración. No se añaden atajos de micrófono,
-retroceso/avance temporal ni pasos de volumen de 1 %.
+Alt+Tab conserva una lista fija por uso reciente durante cada ciclo, entre todos
+los monitores e incluyendo minimizadas. Tab avanza, Shift+Tab retrocede y soltar
+Alt o pulsar Intro activa y eleva la selección, sin cambiarla de monitor. Escape
+cancela sin restaurar minimizadas; pasar el cursor no cambia el foco durante el
+selector. El menú aparece en el monitor donde comenzó el ciclo. Los cambios de
+geometría del escritorio cancelan el selector y los clientes cerrados se retiran.
 
-`playerctl` usa su selección predeterminada de reproductor MPRIS: no se fuerza
-Spotify ni se difunde la orden a todos los reproductores. `wpctl` controla la
-salida predeterminada de WirePlumber/PipeWire; ajustar volumen no quita el silencio.
-Estos bindings no arrancan ni habilitan servicios de audio. Si faltan servicios,
-dispositivo o reproductor, la herramienta puede fallar sin efectuar la acción.
+Rofi sigue ofreciendo un selector de ventanas buscable desde Super+Espacio, que
+también permite recuperar minimizadas. Selecciona por sí mismo el monitor del
+cursor (`-monitor -5`): sus índices no se confunden con los de dwm/Xinerama.
+La ayuda está también en Acciones y el menú de sesión: seleccionar una línea
+solo cierra la ayuda, nunca ejecuta el texto como un comando.
 
-`brightnessctl` selecciona la clase `backlight`, no los LED del teclado; mantiene
-un mínimo de hardware de 1 para no pedir apagar el panel. Necesita permisos del
-sistema y un dispositivo compatible. No se configura DDC ni control individual
-de brillo de monitores externos. No se usa sudo desde los atajos.
+El teclado inicial es ES/US (`es,us`, grupo ES); el indicador permite alternarlo.
+Se configura antes de arrancar hijos y no se escribe en `/etc`.
 
-Las ventanas flotantes nuevas aparecen centradas en el área útil de su monitor.
-Los diálogos transientes usan el monitor de su padre. No se recentran docks,
-fullscreen ni ventanas existentes al redimensionarlas; las demasiado grandes se
-alinean con la esquina superior izquierda sin cambiar su tamaño.
+## Inicio y barra de tareas
 
-El supervisor aplica **teclado español de España (`es`, variante predeterminada)**
-con `setxkbmap` antes de arrancar aplicaciones. No persiste ajustes en `/etc` ni
-en las preferencias de Plasma. Si falla, no inicia los hijos de la sesión.
+La barra inferior no muestra tags ni layout. «Inicio», a la izquierda, abre Rofi
+con aplicaciones, ventanas y acciones, anclado abajo a la izquierda del monitor
+del cursor. El resto del espacio muestra un botón por ventana de ese monitor,
+sin agrupar por aplicación e incluyendo las minimizadas. Clic izquierdo activa y
+restaura; clic en la ventana enfocada la minimiza. El orden no cambia al enfocar;
+los títulos se reparten el espacio y se truncan. `[min]` identifica minimizadas y
+las urgentes se resaltan. Indicadores, reloj y bandeja conservan su zona derecha.
 
-Los atajos de volumen/silencio/brillo usan `wm-control`. Tras aplicar el cambio,
-consultan el nivel real y muestran un OSD Dunst de 1,5 s con barra porcentual;
-pulsaciones sucesivas reemplazan el aviso del mismo tipo. Volumen y brillo se
-serializan por separado para no mostrar estados viejos. El silencio se indica
-sin desmutear al ajustar volumen. Se conservan pasos de 5%, tope 100% de volumen,
-clase backlight y mínimo 1 de brillo. Si falla una acción o la lectura no es válida,
-se muestra un error en vez de confirmar un nivel inventado. No se añaden servicios
-ni captura de teclas por otro daemon; la bandeja pasystray conserva su configuración.
+## Barras de título y ventanas
 
-## Lanzador
+Las titlebars de dwm están desactivadas por defecto (`showtitlebar = 0` en
+`dwm/config.def.h`). Para recuperarlas, cambiar a `1` y reconstruir con un config.h
+actualizado; si se mantiene un config.h propio, cambiar allí la opción. No afecta
+a cabeceras dibujadas por las propias aplicaciones. Sin titlebar, Super+arrastrar
+mueve/redimensiona; Super+M maximiza y Super+Q solicita cierre normal.
 
-Super+Espacio muestra solo aplicaciones y acciones del sistema, diferenciadas
-por etiquetas, en un dmenu centrado horizontal y verticalmente en el monitor
-activo. Las confirmaciones también se centran. El ancho se adapta al texto,
-con un mínimo de 500 píxeles limitado al monitor. GIO interpreta los archivos
-`.desktop`. No recorre HOME ni busca
-archivos; no crea, lee ni actualiza índices. Los índices de versiones anteriores
-se ignoran y no se borran automáticamente. Las etiquetas no se ejecutan como shell.
+Con la opción activada, las ventanas que solicitan decoración usan una titlebar clásica, inspirada en
+Bluebird Metacity: degradado azul, título centrado, colores activos/inactivos y
+botones derechos de minimizar, maximizar/restaurar y cerrar. Es un dibujo propio,
+no un motor Metacity ni una copia exacta de sus gráficos XPM. Los otros temas
+recolorean las decoraciones desde su paleta. No se necesitan Cinnamon ni nuevas
+bibliotecas de imagen.
 
-Acciones disponibles: pantallas (`wm-displays`), red/VPN (`nm-connection-editor`), contraseñas/SSH (`seahorse`), sonido
-(`pavucontrol`), estado de energía (`alacritty -e watch -n 5 upower --dump`), bloqueo,
-suspensión, reinicio, apagado y cierre de sesión. Las cuatro últimas requieren
-confirmación. Cancelar no ejecuta la acción. Cerrar sesión necesita
-`XDG_SESSION_ID`; no se adivina otra sesión si falta.
+- Clic normal enfoca y eleva; el clic continúa llegando a la aplicación.
+  Pasar el cursor no enfoca ni eleva, tampoco cambia el monitor activo.
+- Arrastrar el título mueve; doble clic maximiza/restaura. Super+arrastrar con
+  botón derecho conserva la redimensión existente.
+- Clic derecho sin modificadores en el título abre Siempre encima, Minimizar,
+  Maximizar/restaurar y Cerrar. Super+clic derecho redimensiona, no abre el menú. Puede usarse con ratón o flechas/Intro; Escape cancela.
+- Siempre encima no roba el foco y sigue por debajo del fullscreen seleccionado.
+- Las minimizadas conservan geometría y se recuperan con su botón de la barra,
+  Alt+Tab o Rofi.
+- Docks y fullscreen no muestran titlebar. Al gestionar una ventana se respetan
+  las indicaciones Motif sin título y `_GTK_FRAME_EXTENTS` de cabeceras propias;
+  aplicaciones que no las comuniquen correctamente pueden requerir ajustes.
+- Snap, maximización y centrado cuentan el espacio del título; fullscreen conserva
+  una geometría de retorno separada. Cerrar sigue solicitando WM_DELETE_WINDOW,
+  sin matar conexiones X ni saltarse confirmaciones de cambios sin guardar.
 
-Alacritty es la terminal preferida de la sesión, también para aplicaciones
-`.desktop` con `Terminal=true` mediante xdg-terminal-exec. st se conserva
-instalado como alternativa; no se modifica la configuración personal de Alacritty.
+## Aplicaciones, comandos y acciones
 
-Super+E usa `jumpapp -n -f thunar`: también puede abrir una ventana si Thunar ya
-está en segundo plano sin ventanas normales. El instalador requiere `thunar`,
-no Dolphin; no desinstala Dolphin ni cambia asociaciones de carpetas o ajustes
-de Plasma. GVfs y sus backends son opcionales para papelera/montaje/red y no se
-añaden automáticamente en este cambio.
+Rofi utiliza sus modos `drun` y `window`; el modo propio «Acciones» añade Pantallas,
+Apariencia, Ejecutar comando, Energía, Notificaciones, Red/VPN, contraseñas/SSH,
+sonido, CopyQ, diagnóstico de energía y acciones de sesión. Las entradas de
+aplicaciones y sus iconos pertenecen a Rofi, no a un catálogo duplicado de wm.
 
-Los comandos de atajos pasan por `wm-run`, que avisa mediante Dunst cuando no
-puede ejecutar el programa o este termina con error durante los primeros 1,5 s.
-Si falla la notificación intenta `xmessage` durante 15 s; los errores también
-quedan en el registro de sesión. No se muestran argumentos ni stderr arbitrario
-en el aviso. Jumpapp usa `-n` para observar el arranque sin cambiar foco/ciclo.
-Las acciones del lanzador usan el mismo helper; los fallos GIO también se avisan.
-No se promete detectar fallos posteriores, activaciones DBus asíncronas ni apps
-que devuelven éxito sin abrir ventana. Las aplicaciones lentas no se cancelan.
+`wm-launcher` despacha acciones del catálogo y extensiones configuradas con argv.
+Las etiquetas no se ejecutan como shell. Los menús propios usan índices y rechazan entrada libre;
+suspender, reiniciar, apagar y cerrar sesión requieren confirmación, con Cancelar
+primero. Cerrar sesión necesita `XDG_SESSION_ID`, sin adivinar otra sesión.
 
-## Dependencias y entrega al instalador
+### Añadir aplicaciones y acciones al Inicio
 
-Además de las dependencias de compilación y aplicaciones ya descritas en el
-README, los nuevos atajos necesitan:
+Las aplicaciones se añaden mediante archivos `.desktop` en las rutas XDG
+habituales, como `~/.local/share/applications/`; Rofi gestiona su descubrimiento.
+Para acciones propias, crear `~/.config/wm/dwm/menu.json` (o bajo
+`$XDG_CONFIG_HOME` si está definido), sin recompilar ni reinstalar:
 
-| Ejecutable | Paquete Arch | Función |
-| --- | --- | --- |
-| `playerctl` | `playerctl` | Reproducción MPRIS |
-| `wpctl` | `wireplumber` | Volumen y silencio; requiere una sesión de audio PipeWire/WirePlumber |
-| `brightnessctl` | `brightnessctl` | Retroiluminación y permisos del sistema |
-| `flameshot` | `flameshot` | Captura interactiva |
-| `wm-launcher` | Entregado por wm | Bloqueo mediante la acción existente |
+```json
+{
+  "Mis documentos": {"argv": ["thunar", "/ruta/a/documentos"]},
+  "Mi herramienta": {"argv": ["mi-herramienta", "--opcion"], "confirm": true}
+}
+```
 
-El bloqueo requiere además `xset`, `xss-lock` e `i3lock`, responsabilidad de la
-integración de sesión. Los comandos de reproducción/volumen no justifican
-sustituir un gestor de audio existente ni activar servicios nuevos sin acuerdo.
+Usar rutas absolutas para documentos: no se expanden `~`, variables ni shell.
+`argv` es una lista no vacía de argumentos; `confirm` es booleano, por defecto
+`false`. Etiquetas únicas, sin controles, espacios iniciales/finales ni guion
+inicial. No se pueden sustituir acciones integradas. JSON o valores inválidos
+producen error visible; no se ejecuta una selección desconocida. El límite del
+archivo es 64 Ki caracteres. Esta extensión es exclusiva de dwm; Awesome conserva
+su configuración nativa. Las acciones se ejecutan después de cerrar Rofi.
 
-El inventario acordado para la sesión incluye Dunst, Picom, nm-applet,
-agente Polkit LXQt, CopyQ, snixembed, cbatticon y pasystray; GNOME Keyring/libsecret, GCR SSH
-Agent y Seahorse; autorandr/xrandr para pantallas y herramientas de energía del sistema.
-El inventario completo está en `scripts/dependencies.tsv`: incluye los comandos
-del lanzador, libsecret y unidades de sistema/usuario necesarias. El instalador
-comprueba esas unidades además de los ejecutables. No se ejecuta el autostart
-XDG general de otros escritorios. Remmina y Flameshot quedan disponibles, sin
-arranque automático; no se añaden servicios de audio.
+Super+D conserva un TTY y la salida hasta pulsar Enter. Solo en esa terminal se
+interpreta el comando de shell escrito por el usuario; nunca se ejecuta como
+código una etiqueta de ventana, aplicación, tema o notificación. Las sugerencias
+usan dmenu_path; no se recorren documentos de HOME ni se mantienen índices de
+archivos. Las cachés de aplicaciones que gestione Rofi no son índices de archivos.
 
-## Instalación futura y SDDM
+Alacritty es también la preferencia XDG para las aplicaciones de terminal. No se
+modifica su configuración personal. Jumpapp mantiene los atajos por aplicación;
+Thunar puede abrir una ventana aunque su proceso esté ejecutándose sin ventanas.
 
-Los destinos acordados son `/usr/local/bin/wm-session` y `wm-supervisor`, defaults
-propios en `/usr/local/share/wm` y una entrada X11
-`/usr/share/xsessions/wm.desktop` con `Exec=/usr/local/bin/wm-session`.
-El instalador prepara todos ellos antes de publicar destinos. No copia
-preferencias a HOME ni selecciona la sesión.
+Los atajos y acciones pasan por `wm-run`: notifica fallos de ejecución o errores
+durante los primeros 1,5 segundos; usa xmessage como respaldo acotado si no puede
+notificar. No garantiza detectar errores posteriores ni activaciones D-Bus que
+retornen éxito antes de abrir una ventana.
 
-Una vez completada y autorizada la instalación, guardar el trabajo, cerrar la
-sesión actual y elegir **wm** en SDDM. No lanzar dwm encima de Plasma/KWin ni usar
-las instrucciones upstream de `.xinitrc` como procedimiento de migración.
-La instalación no selecciona ni inicia la sesión. El contrato permite habilitar
-SDDM/NetworkManager para futuros arranques solo sin gestores competidores;
-no start/restart/disable. `DESTDIR` no habilita servicios.
+## Barra, bandeja y avisos
 
-Para volver, cerrar wm y elegir **Plasma** en el gestor de acceso. No se borran
-preferencias de Plasma ni se cambia su configuración de apariencia. Si no se
-puede completar el inicio de wm, volver a Plasma; no intentar arreglarlo
-arrancando otro gestor de ventanas dentro de la sesión actual.
+La barra nativa está abajo en cada monitor, con tag, layout y título seleccionado;
+no se convierte en una tasklist ni añade decoraciones por ventana. Reserva área
+útil para ventanas flotantes y fullscreen puede cubrirla.
 
-## Bandeja, pantallas y bloqueo
+Estado y bandeja XEmbed permanecen en la primaria RandR, con primera pantalla como
+respaldo. La bandeja no sigue el foco, no roba una selección X11 existente y no
+trata los iconos como ventanas normales. snixembed sigue proporcionando el puente
+SNI/AppIndicator, con sus limitaciones de compatibilidad.
 
-La barra propia de dwm permanece visible abajo en todos los monitores, con tag,
-layout y título de la ventana seleccionada. No hay autohide ni atajo para ocultarla.
-Reserva una franja para que maximización, mitades/cuartos y centrado respeten su
-espacio; fullscreen usa la pantalla completa y puede cubrirla. Se conservan la
-fuente, colores y altura nativos de dwm.
+Dwmblocks presenta teclado, perfil de energía, volumen, batería, avisos y reloj
+local `%Y-%m-%d %H:%M:%S`. Cada comando está acotado por timeout; un bloque lento
+puede retrasar la barra hasta ese límite, pero no se ejecuta dentro del proceso
+de dwm. Los intervalos y señales están en `dwmblocks/config.h`.
 
-La bandeja XEmbed integrada y el reloj quedan a la derecha del monitor principal
-RandR, sin seguir el foco; si no hay principal válido se usa el primer monitor.
-Los eventos RandR actualizan su ubicación sin sondeo ni reinicio de paneles.
-Los iconos se ajustan a la altura de la barra, con anchura máxima de cuatro veces
-esa altura; una bandeja desbordada queda recortada al ancho disponible.
-El reloj muestra `2026-10-20 03:04:05` (`%Y-%m-%d %H:%M:%S`), hora local de 24 horas
-con segundos y ceros iniciales, a la izquierda de los iconos. Lo actualiza el
-supervisor mediante xsetroot cada segundo, sin otro daemon de estado.
+- Teclado: clic alterna ES/US.
+- Energía o batería: clic abre las preferencias de Xfce Power Manager.
+- Volumen: clic silencio, rueda +/-5%, clic derecho pavucontrol. Máximo 100%.
+- Avisos: clic abre historial y No molestar; muestra su estado y el número guardado.
 
-El supervisor arranca dwm antes de Dunst, el puente y los applets, y espera a que
-su propia instancia publique la propiedad `_WM_SYSTRAY` (CARDINAL: PID de dwm,
-ventana de bandeja). Rechaza propiedades obsoletas o ajenas; si dwm termina o no
-obtiene su bandeja, aborta y limpia sus hijos. La barra aparece al arrancar dwm,
-no tras la espera del puente SNI; los agentes de secretos/SSH aún se preparan
-antes del gestor. dwm no roba una bandeja existente y conserva la barra si pierde
-la selección X11. Los iconos no son clientes normales ni reciben foco de dwm.
+No se arrancan cbatticon ni pasystray: los indicadores ya cubren esos accesos.
+No se añade un servidor de audio. `wpctl` usa la salida existente y ajustar volumen
+no desactiva el silencio. Brillo usa la clase backlight de brightnessctl y un
+mínimo de hardware de 1; no controla DDC ni LEDs del teclado.
 
-Ya no se requiere tint2 ni se distribuye tint2rc; tampoco Trayer ni Nitrogen.
-Al actualizar, instalar conjuntamente dwm y el supervisor y volver a entrar en wm.
-No se desinstalan paquetes ni se borran configuraciones antiguas del sistema.
-Se mantiene xsetroot con fondo liso claro (#f6f5f4), sin acción «Fondo».
-snixembed sigue como puente SNI porque el parche solo implementa XEmbed. Su soporte
-AppIndicator es limitado; no se garantiza compatibilidad con todos los iconos.
+Dunst conserva hasta cien avisos y los OSD no entran en el historial. «Notificaciones»
+permite recuperar un aviso, vaciar historial y activar No molestar con nivel50;
+los críticos y OSD tienen una excepción superior. No existe otro motor de historial.
+Volumen y brillo sustituyen el OSD del mismo canal y muestran el estado real.
 
-La bandeja incluye dos applets GTK3, arrancados después de dwm/snixembed:
-- **Batería (`cbatticon`)**: estado, porcentaje/estimación en el tooltip y avisos
-  propios (por defecto bajo 20%, crítico 5%). No se configuran comandos de clic,
-  nivel bajo o crítico: no suspende ni cambia la política de energía/tapa.
-- **Volumen (`pasystray`)**: rueda para volumen, clic central/Alt+clic para silencio
-  y menú para elegir salida/entrada. Límite 100%, notificaciones desactivadas y
-  sin capturar teclas multimedia (las conserva dwm). Usa el servidor Pulse
-  compatible existente, por ejemplo pipewire-pulse. Solo este hijo recibe
-  `PULSE_CLIENTCONFIG=/usr/local/share/wm/pulse-client.conf` con `autospawn = no`;
-  no se lanza/instala un servidor de audio ni se tocan preferencias de HOME.
-  Esto no deshabilita sockets o servicios ya configurados por el usuario.
+## Energía y bloqueo
 
-El supervisor arranca una instancia de cada applet y limpia sus grupos al salir;
-si terminan no cierra la sesión ni los relanza en bucle. Su visibilidad depende de
-la batería, servidor de audio y tema de iconos disponibles. Son clientes de
-bandeja, no módulos internos de dwm. Su presentación real queda por verificar.
+Se requiere **Xfce Power Manager 4.20 o posterior**. Se arranca sin `--daemon`:
+en esa versión permanece en primer plano por defecto. Es un hijo crítico del
+supervisor, sin autostart XDG global ni escritorio Xfce.
+Sus preferencias son las normales de xfconf y se comparten con una posible sesión
+Xfce del mismo usuario. La configuración se realiza al iniciar wm, no al instalar.
 
-«Pantallas» abre `wm-displays`, un asistente de menús dmenu centrados. Permite
-activar/desactivar salidas, elegir resolución, frecuencia, rotación y principal,
-y colocar cada pantalla a izquierda/derecha/arriba/abajo de otra, alineando sus
-bordes o centros. Duplicar utiliza una resolución común; resolución y rotación
-se cambian en la pantalla de referencia. Las posiciones relativas se recalculan
-al editar el borrador; se guardan las posiciones resultantes. No se puede apagar
-todo ni crear referencias circulares. Cancelar un menú vuelve atrás sin aplicar.
+El supervisor configura la integración necesaria:
+- `/general/LockCommand` de xfce4-session: `wm-lock`.
+- Bloqueo al suspender: habilitado.
+- Manejo de teclas de brillo y popup de Xfce: deshabilitados; los conserva dwm.
+- Perfil AC `performance` y batería `balanced`: solo si no existe esa preferencia.
 
-Pulsa **Aplicar y guardar** y confirma **Conservar y guardar** en 15 segundos.
-Si cancelas, no confirmas, falla la aplicación o termina el configurador antes
-de confirmar, un watchdog independiente restaura el estado anterior. Los límites
-de modos/framebuffer se comprueban con `xrandr --dryrun`. Si guardar falla después
-de confirmar, se conserva la disposición y se avisa de que no quedó persistida.
-Una pantalla físicamente desenchufada no se puede restaurar: se conservan las
-salidas presentes y, si no queda ninguna activa, se intenta activar una conectada.
-Un fallo del servidor X o del driver puede impedir incluso esa recuperación.
+Las demás políticas existentes se conservan; tapa, inactividad, DPMS y alertas se
+ajustan desde la interfaz del gestor. No se traduce ni importa power.json de Awesome.
+Dwmblocks solo consulta estado: se retira el controlador `power-auto` independiente.
+No habilitar un segundo gestor de energía ni volver a activar teclas duplicadas.
 
-El supervisor arranca `wm-displays --watch` después de dwm. Consulta cada dos
-segundos y espera dos lecturas iguales de la combinación de salidas/EDID:
-- **Setup conocido:** restaura el último perfil confirmado, sin preguntas.
-- **Setup nuevo:** abre el asistente una vez; cancelar no vuelve a abrirlo en bucle.
-  Puede retomarse desde «Pantallas». Al confirmar se guarda automáticamente.
-- Los cambios de geometría, primaria o foco no reactivan perfiles. Un cambio de
-  monitores durante un menú cierra el borrador y procesa el nuevo setup.
+**xss-lock/i3lock es el único dueño del bloqueador.** El supervisor verifica el
+inhibidor de sueño de xss-lock por PID y UID antes de iniciar Xfce Power Manager.
+`wm-lock` solicita a logind bloquear `XDG_SESSION_ID`; no lanza otro i3lock.
+xss-lock transfiere su inhibidor a `i3lock --nofork` para el bloqueo previo al
+sueño. Se conserva el bloqueo inicial por inactividad de 600 segundos.
 
-### Disposición de ventanas abiertas
+Si falta la sesión, no se obtiene el inhibidor, hay otro gestor o termina un hijo
+crítico, el inicio/supervisión falla y limpia sus grupos propios. No se modifica
+logind.conf. Los tests no acreditan que el driver, PAM y la pantalla real bloqueen
+correctamente: esa comprobación corresponde al despliegue autorizado.
 
-Además del perfil de monitores, dwm recuerda posición, tamaño normal y monitor de
-cada ventana flotante que siga abierta, para hasta **16 disposiciones** por ventana
-(historial FIFO). Al volver a una disposición conocida se recuperan sus geometrías;
-las ventanas nuevas no heredan posiciones de otras aplicaciones ni de XID reciclados.
-Se mantiene el estado actual fullscreen/maximizado/mitades, recalculado en el monitor,
-y se recupera también el rectángulo para volver a flotante. Docks y tiled se excluyen.
-Se limita el rectángulo al área útil y se respetan las restricciones de tamaño de
-la aplicación; una aplicación con mínimo mayor que el monitor puede sobresalir.
+## Apariencia
 
-La clave de disposición incluye conexiones/EDID, salidas activas, modo, rotación,
-posición y primaria. Si Xinerama reordena salidas idénticas sin cambios observables,
-no se garantiza identificar el mismo monitor físico. El supervisor de pantallas
-publica `_WM_DISPLAY_SETUP`: `pending` antes de aplicar y una clave al confirmar
-estabilidad, bajo el lock de edición. dwm captura también antes del recolocado
-por desconexión para no guardar el fallback sobre el setup anterior. Heartbeats
-y cambios de foco no recentran ventanas ni roban foco a otra aplicación.
+Bluebird es el default de **dwm y Awesome**; se respetan elecciones ya guardadas.
+El catálogo único de fuentes es `awesome/config/themes.json`, con `default`
+explícito y lista ordenada `profiles`. El instalador lo entrega también como
+`/usr/local/share/wm/themes.json` para los helpers externos.
 
-**No se guarda ningún título, clase de aplicación ni posición de ventana en disco.**
-La memoria se olvida al cerrar la ventana o reiniciar dwm; no se reabren aplicaciones
-ni se intenta adivinar qué ventana corresponde entre sesiones. Ambos componentes,
-dwm y wm-displays, deben estar actualizados y en ejecución para coordinarlo.
+«Apariencia» ofrece Actual, Menta y Bluebird. La paleta Bluebird sigue al tema
+clásico de Shimmer Project: panel #212936 y selección #7e9ebd. Si faltan Bluebird
+GTK o sus iconos elementary-xfce-dark, esos recursos usan Adwaita independientemente;
+la paleta del WM sigue disponible. Menta exige sus recursos GTK/iconos.
 
-Los perfiles de monitores de autorandr quedan solo en `$XDG_CONFIG_HOME/wm/displays/` (por defecto
-`~/.config/wm/displays/`), con enlaces de publicación atómica a versiones privadas.
-No editar esos enlaces ni habilitar un segundo servicio autorandr para wm. No se
-leen/importan perfiles ni hooks personales/globales de autorandr o de Plasma.
-La identidad incluye conector y EDID: cambiar de puerto puede definir otro setup;
-sin EDID se usa el conector. Monitores con EDID idénticos pueden ser ambiguos.
-Un lock por DISPLAY impide ediciones/restauraciones simultáneas. El watcher y sus
-menús se cierran con la sesión; un watchdog pendiente termina tras revertir.
+xsettingsd controla GTK/iconos; archivos temporales privados proporcionan la paleta
+Rofi y Dunst. La propiedad privada `_WM_THEME` actualiza los dos esquemas de dwm
+y sus bordes sin reiniciar el WM. Dwm valida seis colores hexadecimales completos
+antes de cambiar esquemas. El helper revierte consumidores/configuraciones ante
+fallos de aplicación; si falla la persistencia, informa del error.
 
-Las salidas desenchufadas que X11 aún mantiene configuradas se apagan antes de
-crear snapshots. Si al conectar no queda ninguna pantalla activa, se intenta
-activar una como recuperación, antes de mostrar el asistente.
+La elección dwm se guarda en `$XDG_CONFIG_HOME/wm/dwm/appearance`; Awesome conserva
+su selección separada `wm/awesome/appearance`. No se fuerza GTK_THEME=Adwaita.
+XSettings afecta a aplicaciones del mismo display X, no garantiza uniformidad
+para Qt, libadwaita o aplicaciones con estilo propio. Qt mantiene Fusion.
 
-No se necesita LXQt/KScreen para pantallas. No se cambian políticas de tapa ni
-energía. El asistente rechaza transformaciones/escalado, reflexión y panning
-preexistentes en lugar de borrarlos silenciosamente. Los nombres de modos con
-espacios no son compatibles con el parser de autorandr y se rechazan antes de
-aplicar cambios. No se ha validado hotplug
-con hardware real.
+Picom conserva GLX/vsync y la transparencia de las aplicaciones, pero no añade
+sombras ni blur. No impone opacidades distintas según el foco: la señal de ventana
+activa pertenece a los bordes/titlebars de dwm, no a un efecto del compositor.
+El borde fino de 1 px puede resultar poco visible sin la decoración; no se ha
+verificado la apariencia real ni diagnosticado el binario instalado por estos tests.
 
-«Bloquear» y Super+L usan exactamente `wm-launcher --action Bloquear`, que solicita
-`xset s activate`: **sin xss-lock/i3lock activos esto no garantiza un bloqueo**.
-El supervisor arranca xss-lock con i3lock y configura bloqueo tras 600 segundos
-y antes de suspender. Si el proceso de bloqueo termina, la sesión se cierra
-en lugar de continuar sin ese componente crítico.
-No se añade suspensión por inactividad ni se cambia la política de tapa/logind
-ni la energía de Plasma. No ejecutar suspensión real para probar los atajos.
+## Fondo de pantalla persistente
 
-GNOME Keyring y GCR no deben leer/migrar secretos ni sustituir agentes ajenos;
-`SSH_AUTH_SOCK` se limita a la sesión wm. **Bloquear la pantalla no bloquea el
-llavero.** SDDM/PAM con contraseña puede desbloquear el llavero de inicio si las
-contraseñas coinciden; huella y autologin requieren un prompt para desbloquearlo.
-No se edita PAM automáticamente ni se ponen contraseñas vacías. Si ya existe
-un servicio de secretos o `SSH_AUTH_SOCK`, se reutiliza sin sustituirlo. Si no,
-el supervisor activa los sockets de usuario GNOME Keyring/GCR; son servicios
-compartidos y no los detiene al salir. No habilita esas unidades persistentemente.
+«Fondo de pantalla» está disponible desde Inicio, el modo Acciones y el menú de
+sesión. Abre el selector de archivos de Zenity (GTK4 en Arch, sin GTK2). Al elegir
+una imagen, feh la aplica en **fill** a cada pantalla: misma imagen por monitor,
+sin deformar, recortando lo necesario. No es una imagen extendida entre monitores.
+Cancelar no modifica la elección.
 
-El log de hijos está en `$XDG_CACHE_HOME/wm/session-<pantalla>.log` (por defecto
-`~/.cache/wm/`); los errores de inicio se muestran también con xmessage. El
-supervisor solo termina grupos de procesos que él arrancó. Si otra sesión ocupa
-el gestor de ventanas, notificaciones o watcher de bandeja, aborta en vez de
-reemplazarla.
+No se distribuye una imagen predeterminada. Sin imagen guardada ni default
+instalado, se aplica el fondo liso #f6f5f4. Opcionalmente puede añadirse un
+`wallpaper.png` local (ignorado por Git): el instalador lo copia sin modificar
+a `/usr/local/share/wm/wallpaper.png`. Debe ser un archivo regular, no un enlace.
+Si no se aporta, la instalación funciona igualmente y no borra un default
+instalado anteriormente.
 
-El instalador rechaza un alias de gestor de acceso distinto de SDDM y gestores
-conocidos de acceso/red activos o habilitados (incluidas instancias de dhcpcd y
-netctl). Es una comprobación conservadora: no identifica administradores de red
-personalizados con nombres arbitrarios. No deshabilitar un servicio para sortear
-el aviso sin resolver antes quién administra las interfaces.
+La utilidad copia cada nueva elección a
+`$XDG_DATA_HOME/wm/dwm/wallpaper` (por defecto
+`~/.local/share/wm/dwm/wallpaper`), en privado y sin cambiar su contenido. Por eso
+se conserva aunque se mueva o borre el original. El archivo fijo no necesita
+extensión. La copia guardada siempre prevalece sobre el default del paquete.
 
-## Validación y límites
+`wm-wallpaper --restore` la restaura al entrar en dwm y después de estabilizar
+los cambios de monitores. No hay proceso de wallpaper permanente ni polling
+adicional. La instalación no escribe preferencias de HOME ni sobrescribe la
+imagen elegida. Awesome conserva su configuración de fondo independiente.
 
-`make test` es la única operación de validación. El test de atajos compila la
-tabla real con callbacks inertes y compara teclas, modificadores, funciones y
-argv, incluidos los bindings anteriores y las colisiones. No ejecuta reproductores,
-audio, capturas, bloqueo ni herramientas de hardware. Los tests del supervisor
-simulan procesos, bus, reloj, agentes y RandR; los del instalador simulan Git,
-paquetes, privilegios y systemctl, incluidas habilitación y detección de conflictos.
-El gestor de pantallas se prueba con RandR/autorandr/dmenu simulados, geometrías y
-EDID sintéticos, perfiles temporales, locks y watchdogs reales sobre pipes/fork,
-sin conectar con X ni tocar monitores.
+Se valida que la fuente sea un archivo regular no vacío; feh comprueba que puede
+aplicarla. Primero se copia a un temporal del mismo directorio y solo después de
+aplicarla correctamente se reemplaza atómicamente la copia guardada. Un fallo de
+copia/aplicación/guardado conserva la elección anterior; si ya se intentó aplicar,
+se intenta restaurar el fondo anterior y se notifica cualquier fallo de rollback.
+Esto no garantiza recuperación ante un fallo físico del sistema o disco. Un fallo
+de fondo no cierra la sesión. El directorio/copia/lock administrados deben ser
+privados y no enlaces simbólicos; sí puede elegirse un enlace a una imagen fuente.
 
-Los tests sintéticos no acreditan renderizado visual, emoji compuesto,
-compositor, hardware, monitores/docks, autenticación PAM, bloqueo efectivo ni
-persistencia real de secretos o VPN. Instalar, activar y probar esos elementos
-requiere una fase posterior autorizada.
+Los comandos usan argv, nunca shell, y `--no-fehbg` evita crear o modificar
+`~/.fehbg`. No ejecutar scripts de fondos descargados. Waypaper no se integra:
+para esta función no necesitamos backends Wayland, hooks shell ni slideshow.
+Referencias: [feh](https://man.archlinux.org/man/feh.1) y
+[Zenity](https://man.archlinux.org/man/zenity.1.en).
 
-## Referencias de las herramientas
+## Pantallas y geometrías
 
-- [playerctl: comandos y selección del reproductor](https://github.com/altdesktop/playerctl)
-- [wpctl: volumen, límite e identificadores predeterminados](https://pipewire.pages.freedesktop.org/wireplumber/man/wpctl.html)
-- [brightnessctl: clase, mínimo y permisos](https://github.com/Hummer12007/brightnessctl)
-- [Flameshot: interfaz de captura y opciones](https://flameshot.org/docs/advanced/commandline-options/)
-- [snixembed: alcance y soporte AppIndicator](https://man.archlinux.org/man/snixembed.1.en)
-- [systray: parche comunitario de dwm](https://dwm.suckless.org/patches/systray/)
-- [X11 System Tray Protocol](https://specifications.freedesktop.org/systemtray/latest-single/)
-- [cbatticon: batería y comandos opcionales](https://github.com/valr/cbatticon)
-- [pasystray: controles y opciones](https://man.archlinux.org/man/pasystray.1.en)
-- [PulseAudio: configuración de clientes y autospawn](https://wiki.freedesktop.org/www/Software/PulseAudio/FAQ/)
-- [autorandr: perfiles y aplicación de configuraciones](https://github.com/phillipberndt/autorandr)
-- [xrandr: modos, posición y rotación](https://www.x.org/releases/current/doc/man/man1/xrandr.1.xhtml)
-- [xss-lock: bloqueo y suspensión](https://man.archlinux.org/man/xss-lock.1.en)
-- [Dunst: configuración](https://dunst-project.org/documentation/)
-- [Picom: configuración](https://github.com/yshui/picom)
-- [GNOME Keyring](https://wiki.archlinux.org/title/GNOME/Keyring)
-- [Unidades GCR en Arch](https://archlinux.org/packages/extra/x86_64/gcr-4/files/)
-- [Unidades GNOME Keyring en Arch](https://archlinux.org/packages/extra/x86_64/gnome-keyring/files/)
-- [NetworkManager](https://wiki.archlinux.org/title/NetworkManager)
-- [systemctl: habilitación sin inicio](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)
-- [snixembed en Arch](https://archlinux.org/packages/extra/x86_64/snixembed/)
-- [libXrandr en Arch](https://archlinux.org/packages/extra/x86_64/libxrandr/)
+`wm-displays` conserva xrandr/autorandr, perfiles privados en
+`$XDG_CONFIG_HOME/wm/displays`, posiciones relativas, duplicación y confirmación15s
+con watchdog de reversión independiente. Los menús se muestran mediante Rofi.
+Cancelar, cerrar el editor o agotar el plazo no confirma cambios. Un fallo al
+guardar después de confirmar conserva la disposición y avisa de que no se guardó.
+
+El watcher externo recibe eventos de `wm-randr-watch`, agrupados durante350ms.
+No consulta xrandr en periodos estables; las lecturas usan `--current` para evitar
+reprobes. Setup conocido: restauración; desconocido: notificación sin abrir un
+asistente automáticamente. Foco y geometría no reaplican un perfil conocido.
+
+La edición tiene lock por display, comprobación de topología y `xrandr --dryrun`.
+No admite apagar todas las pantallas, ciclos de posiciones, escalado/reflexión ni
+panning preexistentes. Rechaza nombres de modo incompatibles con autorandr. Una
+salida físicamente desconectada no puede restaurarse; se intenta conservar una
+conectada. Fallos de X/driver pueden impedir incluso esa recuperación.
+
+Dwm conserva en memoria hasta16 disposiciones por ventana flotante abierta, sin
+reabrir aplicaciones ni escribir títulos o geometrías de clientes en disco.
+`_WM_DISPLAY_SETUP` coordina captura anterior al cambio y restauración estable;
+se mantienen fullscreen/snap y la geometría normal de retorno. Docks/tiled quedan
+excluidos. EDID idénticos o cambios de conector pueden hacer ambiguos los setups.
+No activar simultáneamente otro servicio autorandr que aplique perfiles.
+
+## Arranque, instalación y validación
+
+El supervisor posee solo sus hijos/grupos; verifica WM/bandeja, notificaciones,
+XSettings y gestor energético antes de continuar. Reutiliza secretos/SSH existentes;
+si faltan, solicita sockets GNOME Keyring/GCR sin habilitarlos persistentemente.
+No copia credenciales, altera PAM ni bloquea el llavero al bloquear la pantalla.
+
+El log queda en `$XDG_CACHE_HOME/wm/session-<pantalla>.log`. El instalador rechaza
+symlinks en destinos, prepara builds/copias en temporales y no activa la sesión
+ni servicios. Actualizar fuentes, helpers y configuración conjuntamente y entrar
+de nuevo en wm: un dwm antiguo no entiende la nueva propiedad de apariencia.
+
+Validación: `make test`. Focalizada: `make test WM_TEST_SUITE=dwm-external` y
+`make test WM_TEST_SUITE=dwm-package`. Incluyen comportamiento, sintaxis, builds,
+ASan/UBSan, bindings reales, supervisor y empaquetado con procesos/buses/hardware
+simulados. Los tests de almacenamiento nativo usan GIO contra archivos temporales.
+No se inician programas gráficos, servidores X ni servicios reales.
+
+Persisten límites que requieren comprobación real autorizada: rendering de temas,
+emoji, Rofi con el servidor X, iconos, hotplug, bloqueo/PAM, suspensión y secretos.
+Una suite verde no garantiza ausencia de errores de integración o de hardware.
+
+## Fuentes
+
+- [Rofi: modos](https://davatorium.github.io/rofi/current/rofi.1/)
+- [Rofi: scripts y selección](https://davatorium.github.io/rofi/current/rofi-script.5/)
+- [Dunst: historial, pausa y recarga](https://dunst-project.org/documentation/dunstctl/)
+- [Xfce Power Manager](https://docs.xfce.org/xfce/xfce4-power-manager/preferences)
+- [Arranque en primer plano y opciones reales de 4.20](https://github.com/xfce-mirror/xfce4-power-manager/blob/xfce-4.20/src/xfpm-main.c)
+- [Xfce: ruta de bloqueo](https://github.com/xfce-mirror/libxfce4ui/blob/xfce-4.20/libxfce4ui/xfce-screensaver.c)
+- [xss-lock](https://man.archlinux.org/man/xss-lock.1.en)
+- [i3lock](https://github.com/i3/i3lock/blob/main/i3lock.1)
+- [xsettingsd](https://man.archlinux.org/man/xsettingsd.1.en)
+- [Bluebird](https://github.com/shimmerproject/Bluebird)
+- [autorandr](https://github.com/phillipberndt/autorandr)
+- [systray](https://dwm.suckless.org/patches/systray/)
+- [snixembed](https://man.archlinux.org/man/snixembed.1.en)
