@@ -8,6 +8,7 @@
 #define drw_rect test_drw_rect
 #define drw_text test_drw_text
 #define drw_map test_drw_map
+#define drw_icon test_drw_icon
 #include "dwm.c"
 #undef main
 #undef drw_resize
@@ -16,6 +17,7 @@
 #undef drw_rect
 #undef drw_text
 #undef drw_map
+#undef drw_icon
 
 static Monitor monitor, other;
 static Client first, second;
@@ -38,6 +40,20 @@ static const char *setuppropertyvalue;
 static int setuppropertyformat;
 static Atom setuppropertytype;
 
+static const unsigned long *icondata;
+static unsigned long iconcount, iconremaining;
+static Atom icontype;
+static int iconformat, iconreads, icondraws, iconfallback, iconinvert;
+
+int
+test_drw_icon(Drw *drawing, int x, int y, const DrwIcon *icon, int invert)
+{
+	assert(drawing == &testdrw && icon && x >= 0 && y >= 0);
+	icondraws++;
+	iconinvert = invert;
+	return !iconfallback;
+}
+
 #include "dwm-tray.c"
 
 int
@@ -48,7 +64,18 @@ XGetWindowProperty(Display *display, Window w, Atom property, long offset,
 	*data = NULL;
 	*count = 0;
 	*remaining = 0;
-	if (w == root && property == windowsetupatom && setuppropertyvalue) {
+	if (property == netatom[NetWMIcon]) {
+		assert(offset == 0 && length == 262146 && requested == XA_CARDINAL && !del);
+		iconreads++;
+		*actual = icontype;
+		*format = iconformat;
+		*remaining = iconremaining;
+		*count = iconcount;
+		if (icondata && iconcount) {
+			*data = malloc(iconcount * sizeof(long));
+			memcpy(*data, icondata, iconcount * sizeof(long));
+		}
+	} else if (w == root && property == windowsetupatom && setuppropertyvalue) {
 		*count = strlen(setuppropertyvalue);
 		*data = malloc(*count + 1);
 		memcpy(*data, setuppropertyvalue, *count + 1);
@@ -439,6 +466,11 @@ reset(void)
 	memset(traymapped, 0, sizeof traymapped);
 	traymapped[10] = traymapped[20] = 1;
 	memset(traysaved, 0, sizeof traysaved);
+	icondata = NULL;
+	iconcount = iconremaining = 0;
+	icontype = XA_CARDINAL;
+	iconformat = 32;
+	iconreads = icondraws = iconfallback = iconinvert = 0;
 	monitor = (Monitor){0};
 	other = (Monitor){0};
 	first = (Client){0};
@@ -1380,6 +1412,105 @@ testtitlebar(void)
 }
 
 static void
+testicons(void)
+{
+	unsigned long pixels[] = {2, 1, 0xffff0000, 0x800000ff};
+	XEvent event = {0};
+	XWindowAttributes wa = {.width = 100, .height = 100};
+	Client *managed;
+	int reads, start;
+
+	reset();
+	monitor.showbar = 1;
+	icondata = pixels;
+	iconcount = LENGTH(pixels);
+	updateicon(&first);
+	assert(first.icon && first.icon->w == 14 && first.icon->h == 7);
+	reads = iconreads;
+	drawbar(&monitor);
+	drawbar(&monitor);
+	assert(iconreads == reads && icondraws == 2);
+	start = barstartwidth(&monitor);
+	assert(taskbar(&monitor, start) == &first);
+	assert(taskbar(&monitor, monitor.ww - 1) == &first);
+	assert(!taskbar(&monitor, monitor.ww));
+	/* Clicking the icon follows the same minimize/restore path as its label. */
+	event.xbutton.window = monitor.barwin;
+	event.xbutton.button = Button1;
+	event.xbutton.x = start + lrpad / 2;
+	buttonpress(&event);
+	assert(first.ishidden);
+	buttonpress(&event);
+	assert(!first.ishidden && monitor.sel == &first);
+	memset(&event, 0, sizeof event);
+	first.isurgent = first.ishidden = 1;
+	drawbar(&monitor);
+	assert(iconinvert == 1);
+	/* Failed rendering keeps the normal full-width text path. */
+	iconfallback = 1;
+	recordbar = 1;
+	bartexts = 0;
+	drawbar(&monitor);
+	recordbar = 0;
+	assert(!strcmp(barlabels[bartexts - 1].text, "[min] "));
+	assert(barlabels[bartexts - 1].invert == 1);
+	iconfallback = 0;
+	monitor.ww = barstartwidth(&monitor) + 10;
+	reads = icondraws;
+	drawbar(&monitor);
+	assert(icondraws == reads);
+	monitor.ww = 1001;
+	event.xproperty.window = first.win;
+	event.xproperty.atom = netatom[NetWMIcon];
+	pixels[2] = 0xff00ff00;
+	propertynotify(&event);
+	assert(first.icon && first.icon->pixels[0] == 0xff00ff00);
+	icontype = XA_STRING;
+	propertynotify(&event);
+	assert(!first.icon);
+	icontype = XA_CARDINAL;
+	iconformat = 8;
+	updateicon(&first);
+	assert(!first.icon);
+	iconformat = 32;
+	iconremaining = 4;
+	updateicon(&first);
+	assert(!first.icon);
+	iconremaining = 0;
+	iconcount = 3;
+	updateicon(&first);
+	assert(!first.icon);
+	iconcount = LENGTH(pixels);
+	updateicon(&first);
+	assert(first.icon);
+	reads = iconreads;
+	event.xproperty.state = PropertyDelete;
+	propertynotify(&event);
+	assert(!first.icon && iconreads == reads);
+	/* Manage reads once; unmanage releases a populated cache (ASan/LSan). */
+	first.ishidden = first.isurgent = 0;
+	manage(30, &wa);
+	managed = wintoclient(30);
+	assert(managed && managed->icon && iconreads == reads + 1);
+	unmanage(managed, 1);
+	icondata = NULL;
+	iconcount = 262147;
+	updateicon(&first);
+	assert(!first.icon);
+	iconcount = 0;
+	updateicon(&first);
+	assert(!first.icon);
+	bh = 4;
+	icondata = pixels;
+	iconcount = LENGTH(pixels);
+	updateicon(&first);
+	assert(!first.icon);
+	icondata = NULL;
+	iconcount = 0;
+	puts("PASS: application icon property bounds/type/deletion, cache lifecycle, fallback and unchanged clicks (mock Xlib)");
+}
+
+static void
 testtaskbar(void)
 {
 	XEvent event = {0};
@@ -2153,6 +2284,7 @@ main(void)
 	testfocus();
 	testtitlebar();
 	testtaskbar();
+	testicons();
 	testalttab();
 	testabove();
 	testminimize();

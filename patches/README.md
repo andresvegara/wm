@@ -89,6 +89,8 @@ Filenames use `dwm-<feature>-YYYYMMDD-bca7cf2.diff`. The order is:
 | ewmhmaximize | Standard independent/combined EWMH maximize axes sharing placement restore. |
 | ewmhmaximizedocs | Document application maximize requests and manual state clearing. |
 | activewindowformat | Reject malformed external activation without restoring or focusing. |
+| taskicons | Bounded EWMH application icons, per-client cache and TrueColor alpha rendering. |
+| taskiconsdocs | Document icon sources, text fallback and dependency limits. |
 
 These are ordered patches, not interchangeable standalone patches.
 Titlebaroption requires titlebarconfig and the earlier titlebar patch; taskbar
@@ -125,6 +127,12 @@ The taskbar is original project code, informed by the behavior described in the
 from that patch is copied or required. Rofi is already a session dependency.
 Applications remain standard desktop entries and extra actions use the documented
 wm/dwm/menu.json file. No additional panel or menu dependency is introduced.
+Taskicons follows activewindowformat and adds original `_NET_WM_ICON` parsing,
+cache and rendering to the taskbar. It reads at most 262146 CARDINALs, bounds
+source dimensions to 512px and displays at most 16px with preserved aspect ratio.
+It uses existing Xlib only, with text fallback; taskiconsdocs is documentation
+only. EWMH defines the property format; no chadwm code was copied.
+
 Activewindowformat follows ewmhmaximizedocs and hardens the existing activation
 handler; it does not map notification text to windows. It preserves cross-monitor
 restoration, MRU and above/fullscreen stacking. EWMH is the protocol reference.
