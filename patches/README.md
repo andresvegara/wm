@@ -82,6 +82,10 @@ Filenames use `dwm-<feature>-YYYYMMDD-bca7cf2.diff`. The order is:
 | startconfig | Personal Inicio button binding to wm-launcher --start. |
 | taskbartitles | Refresh task titles even for unfocused/minimized clients. |
 | taskbardocs | Document optional titlebars, Inicio, tasks and extensible launcher. |
+| csdmove | General EWMH header movement, anchored floating restore and safe drag lifecycle. |
+| csdmovedocs | Document application header dragging, fallback and protocol limits. |
+| csdresize | Complete EWMH pointer resize edges/corners with anchored size hints. |
+| csdresizedocs | Document complete pointer move/resize behavior and remaining limits. |
 
 These are ordered patches, not interchangeable standalone patches.
 Titlebaroption requires titlebarconfig and the earlier titlebar patch; taskbar
@@ -89,6 +93,29 @@ reuses minimize/minimizeinterop, statuscmd and systray rather than adding a seco
 hiding mechanism. Startconfig requires taskbar and the coordinator's launcher
 with --start. Taskbartitles follows taskbar; taskbardocs describes that final
 profile. Tags/layouts remain available internally; only their bar UI is removed.
+
+Csdmove follows the complete preceding profile and reuses snap/maximize placement,
+monitorplacement and the shared Super+drag path. It adds pointer move (8)
+and cancellation (11) from the [EWMH specification](https://specifications.freedesktop.org/wm/latest-single/).
+Csdresize then completes all eight pointer resize directions (0–7); keyboard
+move/resize (9–10) remain unsupported. These are original local implementations,
+with no copied community patch. Client messages validate format/button/source/coordinates;
+released buttons do not leave an indefinite grab. Actual motion restores floating
+size under the pointer; clicks alone preserve maximization. Client destruction,
+unmapping, cancellation and monitor changes release the grab. Interactive bounds
+use all monitor origins, including negatives; drag transfer avoids translating
+the already-positioned window a second time. Csdmovedocs is documentation only
+and depends on csdmove. No application whitelist, added titlebar or new dependency.
+Csdresize depends on csdmove and shares its grab/event/lifecycle handling; it honors
+client hints and anchors top/left grips after applying them. Fixed-size clients
+can move but cannot resize. Real resize clears placement using the current rectangle,
+not the saved floating size. Csdresizedocs follows csdresize and is documentation
+only. Use the complete series, not the move-only prefix: GTK checks the same atom
+for resizing and would stop using its emulation fallback. Reference:
+[GTK X11 move/resize implementation](https://gitlab.gnome.org/GNOME/gtk/-/blob/gtk-3-24/gdk/x11/gdkwindow-x11.c).
+Tests simulate Xlib and events, all eight resize directions, geometry hints,
+malformed input and lifecycle races; real application rendering/dragging remains
+unverified.
 
 The taskbar is original project code, informed by the behavior described in the
 [community awesomebar patch](https://dwm.suckless.org/patches/awesomebar/); no code

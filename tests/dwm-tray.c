@@ -8,7 +8,9 @@ static XWindowChanges traypositions[128];
 static int primaryx, primaryy, primaryavailable, outputconnected = 1;
 static int randrupdates, nextevent, servergrabbed;
 static unsigned long readyvalues[2];
-static XEvent queuedevent;
+static XEvent queuedevent, moveevents[16];
+static size_t moveeventcount, moveeventindex;
+static int putbackevents;
 static void reset(void);
 static void snapto(unsigned int direction);
 static int recordbar, bartexts;
@@ -227,8 +229,23 @@ XRRUpdateConfiguration(XEvent *event)
 }
 
 int
+XPutBackEvent(Display *display, XEvent *event)
+{
+	queuedevent = *event;
+	nextevent = 0;
+	putbackevents++;
+	return 1;
+}
+
+int
 XNextEvent(Display *display, XEvent *event)
 {
+	if (moveeventcount) {
+		if (moveeventindex == moveeventcount)
+			return 1;
+		*event = moveevents[moveeventindex++];
+		return 0;
+	}
 	if (nextevent++)
 		return 1;
 	*event = queuedevent;

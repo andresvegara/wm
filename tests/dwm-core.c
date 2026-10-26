@@ -20,6 +20,7 @@
 static Monitor monitor, other;
 static Client first, second;
 static Fnt testfont = { .h = 16 };
+static Cur testcursor;
 static Drw testdrw = { .fonts = &testfont };
 static Clr testcolors[3];
 static Clr *testscheme[] = { testcolors, testcolors };
@@ -103,17 +104,22 @@ static unsigned int plainclickgrabs;
 static int keyboardgrabfail, keyboardungrabs;
 static KeySym testkey;
 static char heldkeys[32];
+static int pointergrabs, pointerungrabs, pointergrabfail, pointerok;
+static int pointerx, pointery;
+static unsigned int pointermask;
 
 int
 XGrabPointer(Display *display, Window window, Bool owner, unsigned int mask,
 	int pointermode, int keyboardmode, Window confine, Cursor cursor, Time time)
 {
-	return GrabSuccess;
+	pointergrabs++;
+	return pointergrabfail ? AlreadyGrabbed : GrabSuccess;
 }
 
 int
 XUngrabPointer(Display *display, Time time)
 {
+	pointerungrabs++;
 	return 1;
 }
 
@@ -389,11 +395,11 @@ XQueryPointer(Display *display, Window window, Window *rootwin, Window *child,
 {
 	*rootwin = root;
 	*child = None;
-	*rootx = monitor.wx + 1;
-	*rooty = monitor.wy + 1;
+	*rootx = pointerx;
+	*rooty = pointery;
 	*x = *y = 0;
-	*mask = 0;
-	return True;
+	*mask = pointermask;
+	return pointerok;
 }
 
 static void
@@ -463,6 +469,15 @@ reset(void)
 	focusserial = 0;
 	focusedclient = None;
 	clientdecoration = 0;
+	assert(!movingwin);
+	moveeventcount = moveeventindex = 0;
+	putbackevents = pointergrabs = pointerungrabs = pointergrabfail = 0;
+	pointerok = True;
+	pointerx = monitor.wx + 1;
+	pointery = monitor.wy + 1;
+	pointermask = Button1Mask;
+	for (i = 0; i < CurLast; i++)
+		cursor[i] = &testcursor;
 	motifatom = 401;
 	csdatom = 402;
 	frameatom = 403;
@@ -478,6 +493,9 @@ reset(void)
 static void
 expectgeom(int x, int y, int w, int h)
 {
+	if (first.x != x || first.y != y || first.w != w || first.h != h)
+		fprintf(stderr, "geometry: got %d,%d %dx%d, expected %d,%d %dx%d\n",
+			first.x, first.y, first.w, first.h, x, y, w, h);
 	assert(first.x == x && first.y == y);
 	assert(first.w == w && first.h == h);
 }
@@ -571,6 +589,430 @@ testmaximize(void)
 	expectgeom(-1000, 439, 999, 398);
 	snapto(PlaceBottom);
 	expectgeom(-900, 100, 601, 401);
+}
+
+static XEvent
+dragrequest(void)
+{
+	XEvent event = {0};
+
+	event.xclient.type = ClientMessage;
+	event.xclient.window = first.win;
+	event.xclient.message_type = netatom[NetWMMoveResize];
+	event.xclient.format = 32;
+	event.xclient.data.l[0] = pointerx = -800;
+	event.xclient.data.l[1] = pointery = 120;
+	event.xclient.data.l[2] = 8;
+	event.xclient.data.l[3] = Button1;
+	event.xclient.data.l[4] = 1;
+	return event;
+}
+
+static void
+dragmotion(int x, int y)
+{
+	moveeventcount = 2;
+	moveevents[0] = (XEvent){0};
+	moveevents[0].xmotion.type = MotionNotify;
+	moveevents[0].xmotion.time = 100;
+	moveevents[0].xmotion.x_root = x;
+	moveevents[0].xmotion.y_root = y;
+	moveevents[1] = (XEvent){0};
+	moveevents[1].xbutton.type = ButtonRelease;
+	moveevents[1].xbutton.button = Button1;
+}
+
+static void
+testclientdrag(void)
+{
+	XEvent request;
+	Client *allocated;
+	int i, before;
+
+	reset();
+	request = dragrequest();
+	pointerx += 50; /* The client can send its original press after some motion. */
+	dragmotion(-700, 200);
+	clientmessage(&request);
+	expectgeom(-800, 180, 601, 401);
+	assert(pointergrabs == 1 && pointerungrabs == 1 && !movingwin);
+	assert(moveeventindex == 2 && focused == first.win);
+	/* Super+drag shares movement and keeps root coordinates, including negatives. */
+	reset();
+	dragrequest();
+	dragmotion(-700, 200);
+	movemouse(NULL);
+	expectgeom(-800, 180, 601, 401);
+	assert(pointergrabs == 1 && pointerungrabs == 1);
+
+	for (i = 0; i < 2; i++) {
+		reset();
+		togglemaximize(NULL);
+		request = dragrequest();
+		request.xclient.data.l[0] = pointerx = -500;
+		request.xclient.data.l[1] = pointery = 60;
+		dragmotion(-400, 140);
+		if (i) movemouse(NULL); else clientmessage(&request);
+		expectgeom(-701, 120, 601, 401);
+		assert(!first.placement && !movingwin && pointerungrabs == 1);
+	}
+	reset();
+	snapto(PlaceLeft);
+	request = dragrequest();
+	dragmotion(-700, 200);
+	clientmessage(&request);
+	assert(!first.placement && first.w == 601 && first.h == 401);
+	reset();
+	togglemaximize(NULL);
+	request = dragrequest();
+	dragmotion(pointerx, pointery);
+	clientmessage(&request);
+	assert(first.placement == PlaceMax); /* Click/no motion does not restore. */
+	expectgeom(-1000, 40, 999, 797);
+
+	for (i = 0; i < 17; i++) {
+		reset();
+		request = dragrequest();
+		switch (i) {
+		case 0: request.xclient.format = 8; break;
+		case 1: request.xclient.data.l[2] = -1; break;
+		case 2: request.xclient.data.l[2] = 9; break;
+		case 3: request.xclient.data.l[2] = 10; break;
+		case 4: request.xclient.data.l[2] = 11; break;
+		case 5: request.xclient.data.l[3] = Button3; break;
+		case 6: request.xclient.data.l[4] = 3; break;
+		case 7: request.xclient.data.l[0] = SHRT_MAX + 1L; break;
+		case 8: request.xclient.data.l[1] = SHRT_MIN - 1L; break;
+		case 9: request.xclient.window = 999; break;
+		case 10: first.isdock = 1; break;
+		case 11: first.isfullscreen = 1; break;
+		case 12: first.ishidden = 1; break;
+		case 13: first.tags = 2; break;
+		case 14: request.xclient.data.l[3] = -1; break;
+		case 15: request.xclient.data.l[4] = -1; break;
+		case 16: request.xclient.data.l[2] = LONG_MAX; break;
+		}
+		clientmessage(&request);
+		assert(!pointergrabs && !pointerungrabs && !configureevents);
+	}
+	for (i = 0; i < 3; i++) {
+		reset();
+		request = dragrequest();
+		request.xclient.data.l[4] = i;
+		request.xclient.data.l[3] = 0; /* Legacy unknown button; actual button is checked. */
+		dragmotion(-700, 200);
+		clientmessage(&request);
+		expectgeom(-800, 180, 601, 401);
+	}
+	for (i = 0; i < 3; i++) {
+		reset();
+		request = dragrequest();
+		if (i == 0) pointermask = 0; /* Released before the message arrived. */
+		if (i == 1) pointerok = False;
+		if (i == 2) pointergrabfail = 1;
+		clientmessage(&request);
+		assert(pointergrabs == 1 && pointerungrabs == (i != 2));
+		assert(!configureevents && !movingwin);
+	}
+
+	reset();
+	request = dragrequest();
+	dragmotion(-700, 200);
+	moveeventcount = 4;
+	moveevents[3] = moveevents[0];
+	moveevents[1] = moveevents[2] = request;
+	moveevents[1].xclient.format = 8;
+	moveevents[1].xclient.data.l[2] = moveevents[2].xclient.data.l[2] = 11;
+	clientmessage(&request);
+	expectgeom(-800, 180, 601, 401);
+	assert(moveeventindex == 3 && pointerungrabs == 1 && !movingwin);
+	/* Another move request must not recursively grab the pointer. */
+	reset();
+	request = dragrequest();
+	dragmotion(-700, 200);
+	moveevents[2] = moveevents[1];
+	moveevents[1] = moveevents[0];
+	moveevents[0] = request;
+	moveeventcount = 3;
+	clientmessage(&request);
+	expectgeom(-800, 180, 601, 401);
+	assert(pointergrabs == 1 && pointerungrabs == 1);
+
+	reset();
+	other = monitor;
+	other.mx = other.wx = 1;
+	other.num = 1;
+	other.sel = other.clients = other.stack = NULL;
+	monitor.next = &other;
+	request = dragrequest();
+	dragmotion(450, 220);
+	clientmessage(&request);
+	expectgeom(350, 200, 601, 401);
+	assert(first.mon == &other && selmon == &other && other.sel == &first);
+
+	for (i = 0; i < 2; i++) {
+		reset();
+		request = dragrequest();
+		allocated = ecalloc(1, sizeof *allocated);
+		*allocated = first;
+		monitor.clients = monitor.stack = monitor.sel = allocated;
+		moveeventcount = 1;
+		moveevents[0] = (XEvent){0};
+		moveevents[0].xany.type = i ? UnmapNotify : DestroyNotify;
+		if (i) moveevents[0].xunmap.window = first.win;
+		else moveevents[0].xdestroywindow.window = first.win;
+		clientmessage(&request);
+		assert(!monitor.clients && !movingwin && pointerungrabs == 1);
+	}
+	reset();
+	request = dragrequest();
+	moveeventcount = 1;
+	moveevents[0] = (XEvent){0};
+	moveevents[0].xconfigure.type = ConfigureNotify;
+	moveevents[0].xconfigure.window = root;
+	before = configureevents;
+	clientmessage(&request);
+	assert(putbackevents == 1 && pointerungrabs == 1 && !movingwin);
+	assert(configureevents == before && queuedevent.type == ConfigureNotify);
+	for (i = 0; i < 2; i++) {
+		reset();
+		request = dragrequest();
+		randractive = 1;
+		randrevent = 90;
+		moveeventcount = 1;
+		moveevents[0] = (XEvent){.type = randrevent + (i ? RRNotify : RRScreenChangeNotify)};
+		clientmessage(&request);
+		assert(putbackevents == 1 && pointerungrabs == 1 && !movingwin);
+		assert(queuedevent.type == moveevents[0].type);
+	}
+	reset();
+	request = dragrequest();
+	moveeventcount = 1;
+	moveevents[0] = (XEvent){0};
+	moveevents[0].xclient = (XClientMessageEvent){ .type = ClientMessage, .window = first.win,
+		.message_type = netatom[NetWMState], .format = 32 };
+	moveevents[0].xclient.data.l[0] = 1;
+	moveevents[0].xclient.data.l[1] = netatom[NetWMFullscreen];
+	clientmessage(&request);
+	assert(first.isfullscreen && pointerungrabs == 1 && !movingwin);
+	reset();
+	monitor.my = monitor.wy = -500;
+	first.y = -400;
+	request = dragrequest();
+	request.xclient.data.l[1] = pointery = -380;
+	dragmotion(-700, -300);
+	clientmessage(&request);
+	expectgeom(-800, -320, 601, 401);
+	puts("PASS: general application header drag, anchored restore, cancel, lifecycle and pointer safety (mock Xlib)");
+}
+
+static void
+testclientresize(void)
+{
+	static const int geometry[2][8][4] = {
+		{
+			{ -800, 180, 501, 321 }, { -900, 180, 601, 321 },
+			{ -900, 180, 701, 321 }, { -900, 100, 701, 401 },
+			{ -900, 100, 701, 481 }, { -900, 100, 601, 481 },
+			{ -800, 100, 501, 481 }, { -800, 100, 501, 401 }
+		}, {
+			{ -1000, 20, 701, 481 }, { -900, 20, 601, 481 },
+			{ -900, 20, 501, 481 }, { -900, 100, 501, 401 },
+			{ -900, 100, 501, 321 }, { -900, 100, 601, 321 },
+			{ -1000, 100, 701, 321 }, { -1000, 100, 701, 401 }
+		}
+	};
+	XEvent request;
+	Client *allocated;
+	const int *expected;
+	int direction, reverse, lifecycle;
+
+	for (direction = 0; direction < 8; direction++) {
+		for (reverse = 0; reverse < 2; reverse++) {
+			reset();
+			request = dragrequest();
+			request.xclient.data.l[2] = direction;
+			dragmotion(pointerx + (reverse ? -100 : 100), pointery + (reverse ? -80 : 80));
+			clientmessage(&request);
+			expected = geometry[reverse][direction];
+			expectgeom(expected[0], expected[1], expected[2], expected[3]);
+			assert(pointergrabs == 1 && pointerungrabs == 1 && !movingwin);
+			assert(first.isfloating && !first.placement && moveeventindex == 2);
+		}
+		reset();
+		request = dragrequest();
+		request.xclient.data.l[2] = direction;
+		first.isfixed = 1;
+		clientmessage(&request);
+		assert(!pointergrabs && !configureevents);
+		/* Every edge uses the same released-button and lifecycle protection. */
+		for (lifecycle = 0; lifecycle < 5; lifecycle++) {
+			reset();
+			request = dragrequest();
+			request.xclient.data.l[2] = direction;
+			if (lifecycle == 0) {
+				pointermask = 0;
+			} else if (lifecycle <= 2) {
+				allocated = ecalloc(1, sizeof *allocated);
+				*allocated = first;
+				monitor.clients = monitor.stack = monitor.sel = allocated;
+				moveeventcount = 1;
+				moveevents[0] = (XEvent){0};
+				if (lifecycle == 1) {
+					moveevents[0].xdestroywindow.type = DestroyNotify;
+					moveevents[0].xdestroywindow.window = first.win;
+				} else {
+					moveevents[0].xunmap.type = UnmapNotify;
+					moveevents[0].xunmap.window = first.win;
+				}
+			} else if (lifecycle == 3) {
+				moveeventcount = 1;
+				moveevents[0] = request;
+				moveevents[0].xclient.data.l[2] = 11;
+			} else {
+				moveeventcount = 1;
+				moveevents[0] = (XEvent){0};
+				moveevents[0].xconfigure.type = ConfigureNotify;
+				moveevents[0].xconfigure.window = root;
+			}
+			clientmessage(&request);
+			assert(pointergrabs == 1 && pointerungrabs == 1 && !movingwin);
+			if (lifecycle == 1 || lifecycle == 2) assert(!monitor.clients);
+			if (lifecycle == 4) assert(putbackevents == 1);
+		}
+	}
+	reset();
+	first.isfixed = 1;
+	request = dragrequest();
+	dragmotion(-700, 200);
+	clientmessage(&request);
+	expectgeom(-800, 180, 601, 401); /* Fixed size still allows movement. */
+
+	reset();
+	request = dragrequest();
+	request.xclient.data.l[2] = 0;
+	dragmotion(pointerx + 1000, pointery + 1000);
+	clientmessage(&request);
+	expectgeom(-317, 483, 18, 18); /* Opposite edges stay put after crossing. */
+	reset();
+	first.minw = 200;
+	request = dragrequest();
+	request.xclient.data.l[2] = 7;
+	dragmotion(pointerx + 1000, pointery);
+	clientmessage(&request);
+	expectgeom(-499, 100, 200, 401);
+	reset();
+	first.maxw = 650;
+	request = dragrequest();
+	request.xclient.data.l[2] = 7;
+	dragmotion(pointerx - 400, pointery);
+	clientmessage(&request);
+	expectgeom(-949, 100, 650, 401);
+	reset();
+	first.minh = 150;
+	request = dragrequest();
+	request.xclient.data.l[2] = 1;
+	dragmotion(pointerx, pointery + 1000);
+	clientmessage(&request);
+	expectgeom(-900, 351, 601, 150);
+	reset();
+	first.maxh = 450;
+	request = dragrequest();
+	request.xclient.data.l[2] = 1;
+	dragmotion(pointerx, pointery - 200);
+	clientmessage(&request);
+	expectgeom(-900, 51, 601, 450);
+	reset();
+	first.minw = first.maxw = 601;
+	request = dragrequest();
+	request.xclient.data.l[2] = 0;
+	dragmotion(pointerx + 100, pointery + 80);
+	clientmessage(&request);
+	expectgeom(-900, 180, 601, 321); /* Only height is resizable. */
+
+	reset();
+	first.basew = first.baseh = 1;
+	first.incw = 20; first.inch = 10;
+	first.minw = 101; first.minh = 81;
+	first.maxw = 801; first.maxh = 601;
+	request = dragrequest();
+	request.xclient.data.l[2] = 0;
+	dragmotion(pointerx + 109, pointery + 87);
+	clientmessage(&request);
+	expectgeom(-780, 190, 481, 311);
+	assert(first.x + first.w == -299 && first.y + first.h == 501);
+	reset();
+	first.mina = first.maxa = 1;
+	request = dragrequest();
+	request.xclient.data.l[2] = 0;
+	dragmotion(pointerx + 100, pointery + 80);
+	clientmessage(&request);
+	expectgeom(-620, 180, 321, 321);
+
+	reset();
+	th = 24;
+	createtitle(&first);
+	first.h += titleh(&first);
+	request = dragrequest();
+	request.xclient.data.l[2] = 0;
+	dragmotion(pointerx + 100, pointery + 80);
+	clientmessage(&request);
+	expectgeom(-800, 180, 501, 347);
+	assert(titleh(&first) == 26 && clientpositions[first.win].y == 206);
+	assert(clientpositions[first.win].height == 321);
+
+	reset();
+	snapto(PlaceLeft);
+	request = dragrequest();
+	request.xclient.data.l[2] = 4;
+	dragmotion(pointerx + 100, pointery - 80);
+	clientmessage(&request);
+	expectgeom(-1000, 40, 598, 717);
+	assert(!first.placement);
+	reset();
+	togglemaximize(NULL);
+	request = dragrequest();
+	request.xclient.data.l[2] = 4;
+	dragmotion(pointerx, pointery);
+	clientmessage(&request);
+	assert(first.placement == PlaceMax);
+	expectgeom(-1000, 40, 999, 797);
+	/* Resize the maximized rectangle, rather than restoring its floating size. */
+	moveeventindex = 0;
+	dragmotion(pointerx - 100, pointery - 80);
+	clientmessage(&request);
+	expectgeom(-1000, 40, 899, 717);
+	assert(!first.placement);
+	reset();
+	request = dragrequest();
+	request.xclient.data.l[2] = 4;
+	dragmotion(pointerx + 100, pointery + 80);
+	moveeventcount = 3;
+	moveevents[2] = moveevents[0];
+	moveevents[1] = request;
+	moveevents[1].xclient.data.l[2] = 11;
+	clientmessage(&request);
+	expectgeom(-900, 100, 701, 481);
+	assert(moveeventindex == 2 && pointerungrabs == 1 && !movingwin);
+	reset();
+	monitor.my = monitor.wy = -500;
+	first.y = -400;
+	request = dragrequest();
+	request.xclient.data.l[1] = pointery = -380;
+	request.xclient.data.l[2] = 0;
+	dragmotion(pointerx + 100, pointery + 80);
+	clientmessage(&request);
+	expectgeom(-800, -320, 501, 321);
+	reset();
+	first.isfloating = 0;
+	monitor.lt[0] = &layouts[1];
+	request = dragrequest();
+	request.xclient.data.l[2] = 4;
+	dragmotion(pointerx + 100, pointery + 80);
+	clientmessage(&request);
+	expectgeom(-900, 100, 701, 481);
+	assert(first.isfloating);
+	puts("PASS: all application resize edges, hints/anchoring, fixed clients and lifecycle (mock Xlib)");
 }
 
 static void
@@ -1463,6 +1905,8 @@ main(void)
 	testconfig();
 	testplacement();
 	testmaximize();
+	testclientdrag();
+	testclientresize();
 	testlimits();
 	testfullscreen();
 	testclose();
