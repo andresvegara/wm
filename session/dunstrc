@@ -5,6 +5,7 @@
     frame_color = "#909090"
     corner_radius = 4
     history_length = 100
+    mouse_left_click = do_action, close_current
     progress_bar = true
 
 [urgency_low]

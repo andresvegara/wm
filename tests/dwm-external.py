@@ -1,5 +1,6 @@
 """Session integration with synthetic data only; every process call is forbidden by default."""
 from contextlib import redirect_stderr, redirect_stdout
+import configparser
 import io
 import json
 import os
@@ -95,6 +96,11 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
          patch.object(sys, "argv", ["wm-appearance", "--prepare", str(directory)]):
         app.run()
         assert (directory / "theme").read_text() == "bluebird\n" and not saved.exists()
+        for profile in profiles.values():
+            with patch.object(app, "resources", return_value=("Adwaita", "Adwaita")):
+                config = configparser.ConfigParser(interpolation=None)
+                config.read_string(app.render(profile)["dunstrc"])
+                assert config["global"]["mouse_left_click"] == "do_action, close_current"
         assert (directory / "rofi.rasi").read_text() == (root / "session/rofi.rasi").read_text()
         for file in directory.iterdir():
             assert file.stat().st_mode & 0o777 == 0o600
