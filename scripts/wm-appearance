@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+# Coordinate existing theme consumers; never write shared GTK desktop settings.
+import argparse
+import configparser
+import fcntl
+import io
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+
+from wm_session import DATA, choose, command, open_private, private_directory, read_private, resources, themes, write_private
+
+
+def state_path():
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wm/dwm/appearance"
+
+
+def selection(profiles, default):
+    saved = read_private(state_path())
+    name = saved.strip() if saved else default
+    if name not in profiles or resources(profiles[name]) is None:
+        return default
+    return name
+
+
+def palette(profile):
+    return " ".join((profile.get("panel_fg", profile["fg"]), profile.get("panel_bg", profile["bg"]),
+                     profile["border"], profile["selected"], profile["focus"], profile["focus"]))
+
+
+def render(profile):
+    gtk, icons = resources(profile)
+    rofi = '''* {
+    font: "Hack Nerd Font Mono 11";
+    background-color: %s;
+    text-color: %s;
+}
+window { width: 45%%; border: 2px; border-color: %s; padding: 12px; }
+mainbox { children: [ inputbar, message, listview ]; spacing: 8px; }
+inputbar { children: [ prompt, entry ]; spacing: 8px; }
+listview { lines: 14; scrollbar: true; }
+element { padding: 6px; spacing: 8px; }
+element selected { background-color: %s; text-color: %s; }
+element-icon { size: 24px; }
+element-text, element-icon { background-color: inherit; text-color: inherit; }
+''' % (profile["bg"], profile["fg"], profile["border"], profile["focus"], profile["selected"])
+    config = configparser.ConfigParser(interpolation=None)
+    config.read_string((DATA / "dunstrc").read_text())
+    config["global"]["frame_color"] = '"' + profile["border"] + '"'
+    config["global"]["icon_theme"] = '"' + icons + '"'
+    for urgency in ("urgency_low", "urgency_normal", "urgency_critical"):
+        config[urgency]["background"] = '"' + profile["bg"] + '"'
+        if urgency != "urgency_critical":
+            config[urgency]["foreground"] = '"' + profile["fg"] + '"'
+    output = io.StringIO()
+    config.write(output)
+    return {"xsettingsd.conf": 'Net/ThemeName "{}"\nNet/IconThemeName "{}"\n'.format(gtk, icons),
+            "rofi.rasi": rofi, "dunstrc": output.getvalue(), "theme": profile["id"] + "\n",
+            "icon-theme": icons + "\n"}
+
+
+def publish(profile):
+    command(["xprop", "-root", "-f", "_WM_THEME", "8u", "-set", "_WM_THEME", palette(profile)])
+
+
+def apply(directory, profile, previous):
+    pid = os.environ.get("WM_DWM_XSETTINGSD_PID", "")
+    if not pid.isascii() or not pid.isdecimal() or int(pid) <= 1:
+        raise RuntimeError("gestor de apariencia de sesión no disponible")
+    old = {name: read_private(directory / name) for name in render(profile)}
+    if any(value is None for value in old.values()):
+        raise RuntimeError("configuración de apariencia de sesión incompleta")
+    try:
+        for name, value in render(profile).items():
+            write_private(directory / name, value)
+        command(["dunstctl", "reload", str(directory / "dunstrc")])
+        os.kill(int(pid), signal.SIGHUP)
+        publish(profile)
+    except BaseException:
+        errors = []
+        for name, value in old.items():
+            try:
+                write_private(directory / name, value)
+            except (OSError, ValueError) as error:
+                errors.append(str(error))
+        # Restore every consumer, even if a file or another consumer cannot revert.
+        for restore in (lambda: command(["dunstctl", "reload", str(directory / "dunstrc")]),
+                        lambda: os.kill(int(pid), signal.SIGHUP), lambda: publish(previous)):
+            try:
+                restore()
+            except (OSError, subprocess.SubprocessError) as error:
+                errors.append(str(error))
+        if errors:
+            print("wm-appearance: rollback incompleto: " + "; ".join(errors), file=sys.stderr)
+        raise
+    try:
+        write_private(state_path(), profile["id"] + "\n")
+    except (OSError, ValueError) as error:
+        raise RuntimeError("Tema aplicado, pero no se pudo guardar la selección: " + str(error)) from error
+
+
+def run():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--prepare", type=Path)
+    parser.add_argument("--apply-current", action="store_true")
+    options = parser.parse_args()
+    profiles, default = themes()
+    directory = options.prepare or Path(os.environ["WM_DWM_RUNTIME"])
+    private_directory(directory)
+    with open_private(directory / "appearance.lock") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if options.prepare:
+            for name, value in render(profiles[selection(profiles, default)]).items():
+                write_private(directory / name, value)
+            return
+        current = read_private(directory / "theme")
+        if not current or current.strip() not in profiles:
+            raise RuntimeError("tema de sesión inválido")
+        previous = profiles[current.strip()]
+        if options.apply_current:
+            publish(previous)
+            return
+        rows = {}
+        for name, profile in profiles.items():
+            resolved = resources(profile)
+            label = ("✓ " if name == previous["id"] else "") + profile["label"]
+            if resolved is None:
+                label += " (no instalado)"
+            elif resolved[0] != profile["gtk"]:
+                label += " (GTK: " + resolved[0] + ")"
+            rows[label] = profile
+        selected = choose(rows, "Apariencia")
+        if selected is not None:
+            profile = rows[selected]
+            if resources(profile) is None:
+                raise RuntimeError("faltan los recursos GTK/iconos de " + profile["label"])
+            apply(directory, profile, previous)
+
+
+if __name__ == "__main__":
+    try:
+        run()
+    except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
+        print("wm-appearance: " + str(error), file=sys.stderr)
+        try:
+            subprocess.run(["wm-run", "--error", "Apariencia", str(error)], timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        sys.exit(1)
