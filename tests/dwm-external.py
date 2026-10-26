@@ -186,6 +186,14 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
          patch.object(subprocess, "Popen") as popen:
         launcher.execute_action("Apagar")
         assert popen.call_args.args[0] == ["wm-run", "--", "systemctl", "poweroff"]
+    with patch.dict(os.environ, XDG_CURRENT_DESKTOP="dwm", XDG_SESSION_ID="synthetic"), \
+         patch.object(launcher, "choose", return_value="Confirmar"), \
+         patch.object(subprocess, "Popen") as popen:
+        launcher.execute_action("Cerrar sesión")
+        assert popen.call_args.args[0] == ["wm-run", "--", "wm-supervisor", "--logout"]
+    with patch.dict(os.environ, XDG_CURRENT_DESKTOP="dwm", XDG_SESSION_ID="synthetic"), \
+         patch.object(launcher, "choose", return_value="Cancelar"):
+        launcher.execute_action("Cerrar sesión")
     with patch.dict(os.environ, XDG_CURRENT_DESKTOP="dwm"), \
          patch.object(sys, "argv", ["wm-launcher"]), \
          patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:

@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 # Own only the processes started here; never stop another desktop's services.
+import argparse
 import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
 import time
 
-from wm_session import open_private, private_directory, xsettings_owner
+from wm_session import open_private, private_directory, read_private, write_private, xsettings_owner
 
 DATA = Path(__file__).resolve().parent.parent / "share" / "wm"
 
@@ -38,6 +40,62 @@ def start(children, argv, log, required=True, env=None):
                                stderr=subprocess.STDOUT, start_new_session=True, env=env)
     children.append((process, required))
     return process
+
+
+def launch_optional(service, children, log):
+    try:
+        process = start(children, service["argv"], log, required=False)
+        service["process"] = process
+        if service["ready"]:
+            service["ready"](process)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print("wm-session: {}: {}".format(service["argv"][0], error), file=log, flush=True)
+        if service["process"] is not None:
+            try:
+                stop(service["process"])
+            except (OSError, subprocess.SubprocessError) as cleanup:
+                service["restart"] = False
+                print("wm-session: limpieza de {}: {}".format(service["argv"][0], cleanup),
+                      file=log, flush=True)
+            else:
+                children.remove((service["process"], False))
+        service["process"] = None
+    service["next"] = time.monotonic() + 5
+
+
+def optional(services, children, argv, log, ready=None, restart=True):
+    service = dict(argv=argv, ready=ready, process=None, retries=0, restart=restart)
+    services.append(service)
+    launch_optional(service, children, log)
+    return service["process"]
+
+
+def recover(services, children, log):
+    for service in services:
+        process = service["process"]
+        if process is not None:
+            code = process.poll()
+            if code is None:
+                continue
+            print("wm-session: {} terminó con código {}".format(service["argv"][0], code),
+                  file=log, flush=True)
+            try:
+                stop(process)
+            except (OSError, subprocess.SubprocessError) as error:
+                print("wm-session: limpieza de {}: {}".format(service["argv"][0], error),
+                      file=log, flush=True)
+                service["restart"] = False
+            else:
+                children.remove((process, False))
+            service["process"] = None
+            service["next"] = time.monotonic() + 5
+        if not service["restart"] or service["retries"] >= 3:
+            continue
+        if time.monotonic() >= service["next"]:
+            service["retries"] += 1
+            print("wm-session: reinicio {}/3 de {}".format(service["retries"], service["argv"][0]),
+                  file=log, flush=True)
+            launch_optional(service, children, log)
 
 
 def stop(process):
@@ -131,6 +189,14 @@ def readysettings(process):
     raise RuntimeError("no inició XSettings")
 
 
+def request_logout():
+    session = os.environ.get("XDG_SESSION_ID", "")
+    directory = Path(os.environ["WM_DWM_RUNTIME"])
+    if not session or read_private(directory / "session.id") != session:
+        raise RuntimeError("el supervisor de esta sesión no está disponible")
+    write_private(directory / "logout", session)
+
+
 def run():
     if not os.environ.get("XDG_SESSION_ID"):
         raise RuntimeError("falta XDG_SESSION_ID para coordinar el bloqueo")
@@ -147,9 +213,6 @@ def run():
                  "org.xfce.PowerManager", "org.freedesktop.PowerManagement", "org.kde.Solid.PowerManagement"):
         if owns(name):
             raise RuntimeError("otro escritorio ocupa {}; cierra esa sesión primero".format(name))
-    version = re.search(r"(\d+)\.(\d+)", command(["xfce4-power-manager", "--version"]).stdout)
-    if not version or tuple(map(int, version.groups())) < (4, 20):
-        raise RuntimeError("se requiere Xfce Power Manager 4.20 o posterior")
     if xsettings_owner():
         raise RuntimeError("ya existe un gestor XSettings")
     runtime = Path(os.environ["XDG_RUNTIME_DIR"])
@@ -167,8 +230,16 @@ def run():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("ya hay una sesión dwm en esta pantalla")
-        log = open_private(logfile, truncate=True)
-        children = []
+        log = open_private(logfile)
+        try:
+            with open_private(logfile.with_suffix(".log.previous"), truncate=True) as previous:
+                shutil.copyfileobj(log, previous)
+        except BaseException:
+            log.close()
+            raise
+        log.seek(0)
+        log.truncate()
+        children, services = [], []
         interrupted = False
 
         def interrupt(signum, frame):
@@ -177,67 +248,95 @@ def run():
 
         handlers = {sig: signal.signal(sig, interrupt) for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)}
         try:
+            if read_private(directory / "logout") is not None:
+                (directory / "logout").unlink()
+            write_private(directory / "session.id", os.environ["XDG_SESSION_ID"])
             command(["setxkbmap", "-layout", "es,us", "-variant", ","])
             command(["wm-keyboard", "--reset"])
             os.environ["WM_DWM_RUNTIME"] = str(directory)
             os.environ["WM_ROFI_THEME"] = str(directory / "rofi.rasi")
             command(["wm-appearance", "--prepare", str(directory)])
-            settings = start(children, ["xsettingsd", "--config", str(directory / "xsettingsd.conf")], log)
-            readysettings(settings)
-            os.environ["WM_DWM_XSETTINGSD_PID"] = str(settings.pid)
-            if not owns("org.freedesktop.secrets"):
-                command(["systemctl", "--user", "start", "gnome-keyring-daemon.socket"])
-                command(["gnome-keyring-daemon", "--start", "--components=secrets"])
-                for attempt in range(50):
-                    if owns("org.freedesktop.secrets"):
-                        break
-                    time.sleep(0.1)
-                else:
-                    raise RuntimeError("no inició el servicio de secretos")
-            if not os.environ.get("SSH_AUTH_SOCK"):
-                command(["systemctl", "--user", "start", "gcr-ssh-agent.socket"])
-                agent = runtime / "gcr" / "ssh"
-                for attempt in range(50):
-                    if agent.is_socket():
-                        break
-                    time.sleep(0.1)
-                else:
-                    raise RuntimeError("no apareció el socket GCR de esta sesión")
-                os.environ["SSH_AUTH_SOCK"] = str(agent)
+            settings = optional(services, children, ["xsettingsd", "--config", str(directory / "xsettingsd.conf")],
+                                log, ready=readysettings, restart=False)
+            if settings is not None:
+                os.environ["WM_DWM_XSETTINGSD_PID"] = str(settings.pid)
+            else:
+                os.environ.pop("WM_DWM_XSETTINGSD_PID", None)
+            try:
+                if not owns("org.freedesktop.secrets"):
+                    command(["systemctl", "--user", "start", "gnome-keyring-daemon.socket"])
+                    command(["gnome-keyring-daemon", "--start", "--components=secrets"])
+                    for attempt in range(50):
+                        if owns("org.freedesktop.secrets"):
+                            break
+                        time.sleep(0.1)
+                    else:
+                        raise RuntimeError("no inició el servicio de secretos")
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                print("wm-session: secretos no disponibles: {}".format(error), file=log, flush=True)
+            try:
+                if not os.environ.get("SSH_AUTH_SOCK"):
+                    command(["systemctl", "--user", "start", "gcr-ssh-agent.socket"])
+                    agent = runtime / "gcr" / "ssh"
+                    for attempt in range(50):
+                        if agent.is_socket():
+                            break
+                        time.sleep(0.1)
+                    else:
+                        raise RuntimeError("no apareció el socket GCR de esta sesión")
+                    os.environ["SSH_AUTH_SOCK"] = str(agent)
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                print("wm-session: agente SSH no disponible: {}".format(error), file=log, flush=True)
             command(["xsetroot", "-solid", "#f6f5f4", "-name", "wm"])
             wm = start(children, [str(Path(__file__).resolve().parent / "dwm")], log, required=False)
             readytray(wm)
-            notification = start(children, ["dunst", "-conf", str(directory / "dunstrc")], log)
-            ready(notification, "org.freedesktop.Notifications")
+            optional(services, children, ["dunst", "-conf", str(directory / "dunstrc")], log,
+                     ready=lambda process: ready(process, "org.freedesktop.Notifications"))
             try:
                 background = command(["wm-wallpaper", "--restore"], required=False)
                 if background.returncode:
                     print(background.stderr, file=log)
             except (OSError, subprocess.SubprocessError) as error:
                 print("wm-wallpaper: " + str(error), file=log)
-            start(children, ["picom", "--config", str(DATA / "picom.conf")], log, required=False)
-            start(children, ["lxqt-policykit-agent"], log)
-            bridge = start(children, ["snixembed"], log)
-            ready(bridge, "org.kde.StatusNotifierWatcher")
-            start(children, [str(Path(__file__).resolve().parent / "dwmblocks")], log, required=False)
-            start(children, ["nm-applet"], log, required=False)
-            start(children, ["copyq"], log, required=False)
+            optional(services, children, ["picom", "--config", str(DATA / "picom.conf")], log)
+            optional(services, children, ["lxqt-policykit-agent"], log)
+            optional(services, children, ["snixembed"], log,
+                     ready=lambda process: ready(process, "org.kde.StatusNotifierWatcher"))
+            optional(services, children, [str(Path(__file__).resolve().parent / "dwmblocks")], log)
+            optional(services, children, ["nm-applet"], log)
+            optional(services, children, ["copyq"], log)
             locker = start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)
             readylocker(locker)
-            configure_power()
-            # Since 4.20 it stays in the foreground unless --daemon is supplied.
-            power = start(children, ["xfce4-power-manager"], log)
-            ready(power, "org.xfce.PowerManager")
+            try:
+                version = re.search(r"(\d+)\.(\d+)", command(["xfce4-power-manager", "--version"]).stdout)
+                if not version or tuple(map(int, version.groups())) < (4, 20):
+                    raise RuntimeError("se requiere Xfce Power Manager 4.20 o posterior")
+                configure_power()
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                print("wm-session: xfce4-power-manager deshabilitado: {}".format(error), file=log, flush=True)
+            else:
+                # Since 4.20 it stays in the foreground unless --daemon is supplied.
+                optional(services, children, ["xfce4-power-manager"], log,
+                         ready=lambda process: ready(process, "org.xfce.PowerManager"))
             command(["xset", "s", "600", "600"])
-            command(["wm-appearance", "--apply-current"])
-            start(children, [str(Path(__file__).resolve().parent / "wm-displays"), "--watch"], log)
+            try:
+                command(["wm-appearance", "--apply-current"])
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                print("wm-session: apariencia no aplicada: {}".format(error), file=log, flush=True)
+            optional(services, children, [str(Path(__file__).resolve().parent / "wm-displays"), "--watch"], log)
             while wm.poll() is None and not interrupted:
+                if read_private(directory / "logout") == os.environ["XDG_SESSION_ID"]:
+                    break
                 for process, required in children:
                     if required and process.poll() is not None:
                         raise RuntimeError("terminó un componente necesario: {}".format(process.args[0]))
+                recover(services, children, log)
                 time.sleep(1)
             if not interrupted and wm.returncode:
                 raise RuntimeError("dwm terminó con código {}".format(wm.returncode))
+        except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+            print("wm-session: {}".format(error), file=log, flush=True)
+            raise
         finally:
             cleanup_error = None
             for process, required in reversed(children):
@@ -245,6 +344,13 @@ def run():
                     stop(process)
                 except (OSError, subprocess.SubprocessError) as error:
                     cleanup_error = error
+                    print("wm-session: limpieza de {}: {}".format(process.args[0], error),
+                          file=log, flush=True)
+            try:
+                (directory / "session.id").unlink(missing_ok=True)
+            except OSError as error:
+                cleanup_error = error
+                print("wm-session: limpieza del identificador: {}".format(error), file=log, flush=True)
             log.close()
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
@@ -252,15 +358,21 @@ def run():
                 raise RuntimeError("no se completó la limpieza: {}".format(cleanup_error))
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--logout", action="store_true")
+    options = parser.parse_args(argv)
     try:
-        run()
+        if options.logout:
+            request_logout()
+        else:
+            run()
     except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
-        message = "wm-session: {}".format(error)
-        print(message, file=sys.stderr)
-        # This runs only on an explicitly started session, never from installation.
-        try:
-            subprocess.run(["xmessage", "-center", message], timeout=30)
-        except (OSError, subprocess.SubprocessError):
-            pass
-        sys.exit(1)
+        print("wm-session: {}".format(error), file=sys.stderr)
+        # SDDM reserves 1 for authentication failure and does not restart its display.
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

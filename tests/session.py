@@ -1,6 +1,7 @@
 """Real dwm supervisor with synthetic process, bus, RandR and XSettings boundaries."""
 import fcntl
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import types
 from unittest.mock import patch
+from contextlib import redirect_stderr
 
 root, temporary = map(Path, sys.argv[1:])
 sys.path.insert(0, str(root / "scripts"))
@@ -28,8 +30,8 @@ class Process:
         name = Path(self.args[0]).name
         if name == self.world.exit_child or (self.world.late_child == name and self.world.ticks):
             self.returncode = 1
-        if name == "dwm" and self.world.ticks >= 2:
-            self.returncode = 0
+        if name == "dwm" and self.world.ticks >= self.world.wm_ticks:
+            self.returncode = self.world.wm_code
         return self.returncode
 
     def wait(self, timeout):
@@ -51,12 +53,17 @@ class World:
         self.bad_tray, self.bad_ownership, self.bad_inhibitor = False, False, False
         self.bad_bus, self.bad_inhibitor_reply = False, False
         self.clock = 0
+        self.wm_ticks, self.wm_code = 2, 0
+        self.interrupt_at = self.logout_at = None
+        self.logout_session = "synthetic"
+        self.spawn_attempts = []
         self.version = "4.20.0"
         self.wallpaper_status = 0
 
     def popen(self, argv, **kwargs):
         assert kwargs["stdin"] == subprocess.DEVNULL
         assert kwargs["stderr"] == subprocess.STDOUT and kwargs["start_new_session"]
+        self.spawn_attempts.append((Path(argv[0]).name, self.clock))
         if Path(argv[0]).name == self.fail_command:
             raise OSError("synthetic spawn failure")
         process = Process(self, argv)
@@ -106,7 +113,7 @@ class World:
             assert argv == [name, "-solid", "#f6f5f4", "-name", "wm"]
         elif name == "wm-wallpaper":
             assert argv == [name, "--restore"]
-            assert any(p.args[0] == "dunst" for p in self.processes)
+            assert any(name == "dunst" for name, clock in self.spawn_attempts)
             code = self.wallpaper_status
         elif name == "xset":
             assert argv == [name, "s", "600", "600"]
@@ -133,6 +140,10 @@ class World:
         self.clock += seconds
         if seconds == 1:
             self.ticks += 1
+            if self.ticks == self.interrupt_at:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            if self.ticks == self.logout_at:
+                module.write_private(Path(os.environ["WM_DWM_RUNTIME"]) / "logout", self.logout_session)
 
     def handler(self, sig, handler):
         previous = self.handlers.get(sig, signal.SIG_DFL)
@@ -177,6 +188,8 @@ def exercise(world, error=False, prepare=None, agent=True):
             assert error, "unexpected failure"
     assert {p.pid for p in world.processes} == {pid for pid, sig in world.kills}
     assert all(value == signal.SIG_DFL for value in world.handlers.values())
+    if world.processes:
+        assert not next(runtime.glob("wm-*/session.id"), None)
     return folder
 
 
@@ -208,20 +221,28 @@ world.pref_exists = False
 exercise(world)
 setters = [argv for argv in world.calls if "--create" in argv]
 assert len(setters) == 6 and setters[-2][-1] == "performance" and setters[-1][-1] == "balanced"
-for name in ("xfce4-power-manager", "xss-lock", "xsettingsd", "dunst", "snixembed"):
-    world = World()
-    world.exit_child = name
-    exercise(world, error=True)
-    if name == "xss-lock":
-        assert not any(argv[0] == "xfconf-query" for argv in world.calls)
-        assert not any(p.args[0] == "xfce4-power-manager" for p in world.processes)
+complements = ("xfce4-power-manager", "xsettingsd", "dunst", "snixembed", "picom",
+               "lxqt-policykit-agent", "dwmblocks", "nm-applet", "copyq", "wm-displays")
+for name in complements:
+    for failure in ("exit_child", "fail_command", "late_child"):
+        world = World()
+        setattr(world, failure, name)
+        folder = exercise(world)
+        logfile = next((folder / "cache/wm").glob("*.log"))
+        assert name in logfile.read_text(), (name, failure)
+        assert world.ticks == world.wm_ticks, "complement closed dwm"
+world = World()
+world.exit_child = "xss-lock"
+exercise(world, error=True)
+assert not any(argv[0] == "xfconf-query" for argv in world.calls)
+assert not any(p.args[0] == "xfce4-power-manager" for p in world.processes)
 for attribute in ("bad_inhibitor", "bad_bus", "bad_inhibitor_reply"):
     world = World()
     setattr(world, attribute, True)
     exercise(world, error=True)
     assert not any(argv[0] == "xfconf-query" for argv in world.calls)
     assert not any(p.args[0] == "xfce4-power-manager" for p in world.processes)
-for name in ("xfconf-query", "wm-appearance", "setxkbmap", "wm-keyboard"):
+for name in ("wm-appearance", "setxkbmap", "wm-keyboard"):
     world = World()
     world.fail_command = name
     exercise(world, error=True)
@@ -235,8 +256,8 @@ for name in ("org.freedesktop.Notifications", "org.xfce.PowerManager", "org.free
     assert not world.processes
 for version in ("4.18.0", "unreadable"):
     world = World(); world.version = version
-    exercise(world, error=True)
-    assert not world.processes
+    exercise(world)
+    assert not any(p.args[0] == "xfce4-power-manager" for p in world.processes)
 for missing in ("dunstrc", "picom.conf", "themes.json", "rofi.rasi"):
     world = World()
     exercise(world, error=True, prepare=lambda data, env: (data / missing).unlink())
@@ -251,6 +272,9 @@ exercise(world)
 assert any(sig == signal.SIGKILL for pid, sig in world.kills)
 world = World()
 world.late_child = "xfce4-power-manager"
+exercise(world)
+world = World()
+world.late_child = "xss-lock"
 exercise(world, error=True)
 for attr in ("bad_tray", "bad_ownership"):
     world = World()
@@ -290,4 +314,143 @@ for kind in ("symlink", "hardlink", "permissions", "duplicate"):
     for handle in handles:
         handle.close()
     assert not world.processes and (folder / "sentinel").read_text() == "untouched"
-print("PASS: real supervisor order, xfconf defaults/integration, exclusive locker, failures, conflicts, private locks/logs and owned cleanup (all boundaries mocked)")
+# Recovery is bounded even for persistent crashes, readiness and spawn failures.
+for failure in ("exit_child", "late_child", "fail_command"):
+    for name in complements:
+        world = World()
+        world.wm_ticks = 35
+        setattr(world, failure, name)
+        exercise(world)
+        attempts = [clock for command, clock in world.spawn_attempts if command == name]
+        if name == "xfce4-power-manager" and failure == "fail_command":
+            assert not attempts  # Version/config prerequisite failed: power stays off.
+        else:
+            assert len(attempts) == (1 if name == "xsettingsd" else 4), (name, failure, attempts)
+            assert all(b - a >= 5 for a, b in zip(attempts, attempts[1:]))
+
+# A transient Dunst crash recovers without losing the WM or its later children.
+world = World()
+world.wm_ticks = 15
+original_poll = Process.poll
+def transient_poll(process):
+    if process.args[0] == "dunst" and world.ticks >= 1:
+        notes = [p for p in world.processes if p.args[0] == "dunst"]
+        if process is notes[0]:
+            process.returncode = 1
+    return original_poll(process)
+with patch.object(Process, "poll", transient_poll):
+    folder = exercise(world)
+assert len([p for p in world.processes if p.args[0] == "dunst"]) == 2
+assert "reinicio 1/3 de dunst" in next((folder / "cache/wm").glob("*.log")).read_text()
+
+world = World()
+world.fail_command = "xfconf-query"
+exercise(world)
+assert not any(p.args[0] == "xfce4-power-manager" for p in world.processes)
+world = World()
+world.secrets = False
+world.fail_command = "gnome-keyring-daemon"
+exercise(world)
+world = World()
+world.fail_command = "systemctl"
+exercise(world, agent=False)
+world = World()
+world.wm_code = 9
+exercise(world, error=True)
+world = World()
+world.wm_ticks, world.interrupt_at = 100, 1
+exercise(world)
+assert world.ticks == 1
+
+# Logout asks our supervisor to finish, never kills the SDDM helper.
+world = World()
+world.wm_ticks, world.logout_at = 100, 1
+exercise(world)
+assert world.ticks == 1
+world = World()
+world.wm_ticks, world.logout_at, world.logout_session = 3, 1, "another-session"
+exercise(world)
+assert world.ticks == 3, "foreign session request closed dwm"
+def stale_logout(data, env):
+    directory = Path(env["XDG_RUNTIME_DIR"]) / ("wm-" + key)
+    directory.mkdir(mode=0o700)
+    module.write_private(directory / "logout", "synthetic")
+world = World()
+exercise(world, prepare=stale_logout)
+assert world.ticks == world.wm_ticks
+
+# Failed complement cleanup disables its retries, not the desktop.
+for failure in ("exit_child", "late_child"):
+    world = World()
+    world.wm_ticks = 12
+    setattr(world, failure, "dunst")
+    original_stop = module.stop
+    failed = []
+    def fail_cleanup(process):
+        if process.args[0] == "dunst" and not failed:
+            failed.append(True)
+            raise OSError("synthetic cleanup failure")
+        original_stop(process)
+    with patch.object(module, "stop", side_effect=fail_cleanup):
+        folder = exercise(world)
+    assert world.ticks == 12 and len([p for p in world.processes if p.args[0] == "dunst"]) == 1
+    assert "synthetic cleanup failure" in next((folder / "cache/wm").glob("*.log")).read_text()
+
+# Previous session evidence survives the next startup, with private file checks.
+def previous_log(data, env):
+    cache = Path(env["XDG_CACHE_HOME"]) / "wm"
+    cache.mkdir(mode=0o700, parents=True)
+    path = cache / ("session-" + key + ".log")
+    path.write_text("synthetic previous failure\n")
+    path.chmod(0o600)
+folder = exercise(World(), prepare=previous_log)
+archive = next((folder / "cache/wm").glob("*.log.previous"))
+assert archive.read_text() == "synthetic previous failure\n"
+assert archive.stat().st_mode & 0o777 == 0o600
+for kind in ("symlink", "hardlink", "permissions"):
+    def unsafe_archive(data, env):
+        previous_log(data, env)
+        cache = Path(env["XDG_CACHE_HOME"]) / "wm"
+        archive = cache / ("session-" + key + ".log.previous")
+        sentinel = data / "sentinel"
+        sentinel.write_text("untouched")
+        sentinel.chmod(0o600)
+        if kind == "symlink":
+            archive.symlink_to(sentinel)
+        elif kind == "hardlink":
+            os.link(sentinel, archive)
+        else:
+            archive.write_text("untouched")
+            archive.chmod(0o644)
+    world = World()
+    folder = exercise(world, error=True, prepare=unsafe_archive)
+    assert not world.processes and (folder / "data/sentinel").read_text() == "untouched"
+    assert next((folder / "cache/wm").glob("*.log")).read_text() == "synthetic previous failure\n"
+
+# SDDM must receive a session error (2), never its reserved auth-error status (1).
+with patch.object(module, "run", side_effect=RuntimeError("synthetic failure")), \
+     patch.object(subprocess, "run", side_effect=AssertionError("NO GUI")), \
+     redirect_stderr(io.StringIO()) as errors:
+    assert module.main([]) == 2 and "synthetic failure" in errors.getvalue()
+with patch.object(module, "run", return_value=None):
+    assert module.main([]) == 0
+
+request = temporary / "logout-request"
+request.mkdir(mode=0o700)
+module.write_private(request / "session.id", "synthetic")
+with patch.dict(os.environ, WM_DWM_RUNTIME=str(request), XDG_SESSION_ID="synthetic"), \
+     patch.object(subprocess, "run", side_effect=AssertionError("NO SESSION COMMANDS")):
+    assert module.main(["--logout"]) == 0
+    assert module.read_private(request / "logout") == "synthetic"
+    (request / "logout").unlink()
+    for session in ("", "foreign"):
+        with patch.dict(os.environ, XDG_SESSION_ID=session), redirect_stderr(io.StringIO()):
+            assert module.main(["--logout"]) == 2
+            assert not (request / "logout").exists()
+    sentinel = request / "sentinel"
+    sentinel.write_text("untouched")
+    (request / "logout").symlink_to(sentinel)
+    with redirect_stderr(io.StringIO()):
+        assert module.main(["--logout"]) == 2
+    assert sentinel.read_text() == "untouched"
+print("PASS: supervisor degradation, bounded recovery, locker security, SDDM status, private logs and owned cleanup (all boundaries mocked)")

@@ -45,6 +45,7 @@ def actions():
     }
     if awesome():
         return catalog
+    catalog["Cerrar sesión"] = (["wm-supervisor", "--logout"], True)
     catalog["Ayuda de atajos"] = (["wm-launcher", "--shortcuts"], False)
     catalog["Fondo de pantalla"] = (["wm-wallpaper"], False)
     config = Path(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"))
@@ -128,7 +129,7 @@ def execute_action(name, monitor=None):
     command, confirm = actions()[name]
     if name == "Pantallas" and monitor is not None:
         command += ["-m", monitor]
-    if name == "Cerrar sesión" and not command[-1]:
+    if name == "Cerrar sesión" and not os.environ.get("XDG_SESSION_ID"):
         report(name, "Falta XDG_SESSION_ID; no se cerró ninguna sesión")
         return
     if confirm and choose(["Cancelar", "Confirmar"], name, monitor) != "Confirmar":
