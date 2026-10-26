@@ -75,6 +75,54 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
         with patch.object(subprocess, "run", side_effect=menu):
             assert shared.choose(["bad\nlabel", "second"], "Synthetic") == expected
 
+# Health is bounded, private, current, scoped to this session, and data only.
+health_directory = temporary / "health-data"
+health_directory.mkdir(mode=0o700)
+health_path = health_directory / "health.json"
+shared.write_private(health_directory / "session.id", "synthetic")
+valid_health = {"session": "synthetic", "issues": {"dunst": "No disponible"}, "updated": 10}
+with patch.dict(os.environ, WM_DWM_RUNTIME=str(health_directory), XDG_SESSION_ID="synthetic"), \
+     patch.object(shared.time, "monotonic", return_value=11):
+    shared.write_private(health_path, json.dumps(valid_health))
+    assert shared.session_health() == {"dunst": "No disponible"}
+    invalid_health = [[], {}, dict(valid_health, session="foreign"), dict(valid_health, issues=[]),
+                     dict(valid_health, updated=True), dict(valid_health, updated=float("nan")),
+                     dict(valid_health, updated=float("inf")), dict(valid_health, updated=12),
+                     dict(valid_health, updated=-20), dict(valid_health, extra=True),
+                     dict(valid_health, issues={"bad\nname": "x"}), dict(valid_health, issues={"dunst": "bad\ntext"}),
+                     dict(valid_health, issues={"dunst": 1}), dict(valid_health, issues={"dunst": "x" * 161}),
+                     dict(valid_health, issues={str(i): "x" for i in range(17)})]
+    for data in invalid_health:
+        shared.write_private(health_path, json.dumps(data))
+        try:
+            shared.session_health()
+            raise AssertionError("invalid health accepted: " + repr(data))
+        except (ValueError, RuntimeError):
+            pass
+    for content in ("{", " " * 4097):
+        shared.write_private(health_path, content)
+        try:
+            shared.session_health()
+            raise AssertionError("invalid/oversize health accepted")
+        except ValueError:
+            pass
+    health_path.unlink()
+    health_path.symlink_to(health_directory / "session.id")
+    try:
+        shared.session_health()
+        raise AssertionError("linked health accepted")
+    except OSError:
+        pass
+    health_path.unlink()
+    shared.write_private(health_path, json.dumps(valid_health))
+    shared.write_private(health_directory / "session.id", "another-session")
+    try:
+        shared.session_health()
+        raise AssertionError("inactive health accepted")
+    except RuntimeError:
+        pass
+
+
 def load(name):
     module = types.ModuleType(name)
     module.__file__ = str(root / "scripts" / name)
@@ -260,8 +308,15 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
         assert status.block("power", "1") == "PWR Equilibrado"
         assert command.call_args.args[0] == ["powerprofilesctl", "get"]
         assert popen.call_args.args[0] == ["wm-run", "--", "xfce4-power-manager-settings"]
-    with patch.object(status, "command", side_effect=["4", "50"]):
+    with patch.object(status, "command", side_effect=["4", "50"]), \
+         patch.object(status, "session_health", return_value={}):
         assert status.block("notifications", "") == "Avisos 4 · DND"
+    with patch.object(status, "command", side_effect=RuntimeError("Dunst unavailable")), \
+         patch.object(status, "session_health", return_value={"dunst": "Deshabilitado", "picom": "Recuperando"}):
+        assert status.block("notifications", "") == "Fallos 2 · Avisos ?"
+    with patch.object(status, "command", side_effect=["0", "0"]), \
+         patch.object(status, "session_health", side_effect=ValueError("invalid status")):
+        assert status.block("notifications", "") == "Fallos ? · Avisos 0"
     assert not hasattr(status, "watch_power") and not hasattr(status, "automatic")
 
 print("PASS: Bluebird/resources, atomic appearance and rollback, safe Rofi modes, terminal argv, Dunst history/quiet and read-only status")

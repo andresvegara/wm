@@ -59,6 +59,8 @@ class World:
         self.spawn_attempts = []
         self.version = "4.20.0"
         self.wallpaper_status = 0
+        self.health_samples = []
+        self.notification_status = 0
 
     def popen(self, argv, **kwargs):
         assert kwargs["stdin"] == subprocess.DEVNULL
@@ -117,6 +119,12 @@ class World:
             code = self.wallpaper_status
         elif name == "xset":
             assert argv == [name, "s", "600", "600"]
+        elif name == "notify-send":
+            assert kwargs["timeout"] == 2
+            assert argv[1:4] == ["--app-name=wm-session", "--urgency=normal", "--expire-time=10000"]
+            assert argv[-2] == "Incidencias de sesión" and "Estado de sesión" in argv[-1]
+            assert any(p.args[0] == "dunst" and p.poll() is None for p in self.processes)
+            code = self.notification_status
         elif name == "systemctl":
             assert argv in ([name, "--user", "start", "gnome-keyring-daemon.socket"],
                             [name, "--user", "start", "gcr-ssh-agent.socket"])
@@ -140,6 +148,9 @@ class World:
         self.clock += seconds
         if seconds == 1:
             self.ticks += 1
+            path = Path(os.environ["WM_DWM_RUNTIME"]) / "health.json"
+            if path.exists():
+                self.health_samples.append(json.loads(path.read_text()))
             if self.ticks == self.interrupt_at:
                 self.handlers[signal.SIGTERM](signal.SIGTERM, None)
             if self.ticks == self.logout_at:
@@ -342,6 +353,10 @@ with patch.object(Process, "poll", transient_poll):
     folder = exercise(world)
 assert len([p for p in world.processes if p.args[0] == "dunst"]) == 2
 assert "reinicio 1/3 de dunst" in next((folder / "cache/wm").glob("*.log")).read_text()
+assert any("dunst" in sample["issues"] for sample in world.health_samples)
+assert not world.health_samples[-1]["issues"], "recovered Dunst still degraded"
+notes = [argv for argv in world.calls if argv[0] == "notify-send"]
+assert len(notes) == 1 and "dunst" in notes[0][-1], "lost deferred notice or spammed retries"
 
 world = World()
 world.fail_command = "xfconf-query"
@@ -426,6 +441,50 @@ for kind in ("symlink", "hardlink", "permissions"):
     folder = exercise(world, error=True, prepare=unsafe_archive)
     assert not world.processes and (folder / "data/sentinel").read_text() == "untouched"
     assert next((folder / "cache/wm").glob("*.log")).read_text() == "synthetic previous failure\n"
+
+# Health stays visible for exhausted services; repeated retries do not spam.
+world = World()
+world.wm_ticks, world.exit_child = 35, "picom"
+exercise(world)
+assert "deshabilitado" in world.health_samples[-1]["issues"]["picom"]
+assert len([argv for argv in world.calls if argv[0] == "notify-send"]) == 1
+assert all(len(json.dumps(sample).encode()) <= 4096 for sample in world.health_samples)
+world = World()
+world.wm_ticks, world.exit_child = 35, "dunst"
+exercise(world)
+assert "dunst" in world.health_samples[-1]["issues"]
+assert not any(argv[0] == "notify-send" for argv in world.calls), "activated absent Dunst"
+for failure in ("notify-send", None):
+    world = World()
+    world.wm_ticks, world.exit_child = 15, "picom"
+    world.fail_command = failure
+    world.notification_status = 1
+    folder = exercise(world)
+    assert "picom" in world.health_samples[-1]["issues"]
+    assert len([argv for argv in world.calls if argv[0] == "notify-send"]) == 1
+    assert "aviso no disponible" in next((folder / "cache/wm").glob("*.log")).read_text()
+
+world = World()
+world.wm_ticks = 15
+original_write = module.write_private
+def fail_health(path, content):
+    if path.name == "health.json":
+        raise OSError("synthetic status publication failure")
+    original_write(path, content)
+with patch.object(module, "write_private", side_effect=fail_health):
+    folder = exercise(world)
+assert world.ticks == 15
+assert next((folder / "cache/wm").glob("*.log")).read_text().count("no se pudo publicar estado") == 1
+
+for issues in ({}, {"dunst": "No disponible; recuperación 1/3"}):
+    with patch.object(module, "session_health", return_value=issues), patch.object(module, "choose") as menu:
+        assert module.main(["--status"]) == 0
+        rows, prompt = menu.call_args.args
+        assert prompt == "Estado de sesión" and rows
+        assert ("dunst" in rows[0]) == bool(issues)
+with patch.object(module, "session_health", side_effect=RuntimeError("synthetic unavailable")), \
+     patch.object(module, "choose") as menu:
+    assert module.main(["--status"]) == 0 and "Estado no disponible" in menu.call_args.args[0][0]
 
 # SDDM must receive a session error (2), never its reserved auth-error status (1).
 with patch.object(module, "run", side_effect=RuntimeError("synthetic failure")), \

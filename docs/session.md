@@ -335,6 +335,26 @@ esperando el arranque o recuperación de un componente).
 No se usa `loginctl terminate-session`, que puede matar también al helper de SDDM.
 Las peticiones antiguas o de otro identificador no cierran la nueva sesión.
 
+### Avisos de funcionamiento degradado
+
+La barra muestra `Fallos N` mientras hay complementos averiados, incluso si Dunst
+no funciona (`Avisos ?`). El menú incluye **Estado de sesión**, también accesible
+con `wm-supervisor --status`: muestra componentes afectados, recuperación o
+agotamiento de reintentos sin ejecutar las filas seleccionadas. Si también falla
+dwmblocks, este menú sigue disponible mediante Super+Escape.
+
+Las incidencias nuevas se agrupan en un aviso cuando Dunst está disponible; si
+Dunst estaba caído, el aviso se retrasa hasta su recuperación. Los reintentos del
+mismo fallo no generan avisos repetidos. Si falla el propio envío del aviso, el
+estado y el registro siguen disponibles. Un fallo recuperado se retira del contador.
+
+El estado se conserva en `health.json`, privado y limitado, dentro del runtime
+propio; no contiene títulos de ventanas ni contenido de notificaciones. Se valida
+el identificador de sesión y se renueva al menos cada cinco segundos mientras la
+supervisión avanza. Con más de quince segundos sin renovación, falta de archivo
+o formato inválido se muestra estado no disponible (`Fallos ?`), nunca «sin fallos».
+No sustituye comprobar bloqueo, suspensión y servicios reales.
+
 El log queda en `$XDG_CACHE_HOME/wm/session-<pantalla>.log`; la sesión anterior se
 conserva en el mismo nombre con sufijo `.previous`, ambos privados. El instalador rechaza
 symlinks en destinos, prepara builds/copias en temporales y no activa la sesión

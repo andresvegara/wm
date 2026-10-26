@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 
-from wm_session import open_private, private_directory, read_private, write_private, xsettings_owner
+from wm_session import choose, open_private, private_directory, read_private, session_health, write_private, xsettings_owner
 
 DATA = Path(__file__).resolve().parent.parent / "share" / "wm"
 
@@ -48,7 +48,11 @@ def launch_optional(service, children, log):
         service["process"] = process
         if service["ready"]:
             service["ready"](process)
+        if process.poll() is not None:
+            raise RuntimeError("el componente terminó al arrancar")
+        service["problem"] = None
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        service["problem"] = "No pudo iniciar; consulta el registro"
         print("wm-session: {}: {}".format(service["argv"][0], error), file=log, flush=True)
         if service["process"] is not None:
             try:
@@ -64,7 +68,7 @@ def launch_optional(service, children, log):
 
 
 def optional(services, children, argv, log, ready=None, restart=True):
-    service = dict(argv=argv, ready=ready, process=None, retries=0, restart=restart)
+    service = dict(argv=argv, ready=ready, process=None, retries=0, restart=restart, problem=None)
     services.append(service)
     launch_optional(service, children, log)
     return service["process"]
@@ -77,6 +81,7 @@ def recover(services, children, log):
             code = process.poll()
             if code is None:
                 continue
+            service["problem"] = "Terminó con código {}".format(code)
             print("wm-session: {} terminó con código {}".format(service["argv"][0], code),
                   file=log, flush=True)
             try:
@@ -96,6 +101,55 @@ def recover(services, children, log):
             print("wm-session: reinicio {}/3 de {}".format(service["retries"], service["argv"][0]),
                   file=log, flush=True)
             launch_optional(service, children, log)
+
+
+def update_health(directory, services, warnings, state, log):
+    issues = dict(warnings)
+    for service in services:
+        if service["problem"]:
+            retry = "; deshabilitado" if not service["restart"] or service["retries"] >= 3 else "; recuperación {}/3".format(service["retries"])
+            issues[Path(service["argv"][0]).name] = service["problem"] + retry
+    now = time.monotonic()
+    if issues != state["published"] or now >= state.get("refresh", 0):
+        try:
+            write_private(directory / "health.json", json.dumps(
+                {"session": os.environ["XDG_SESSION_ID"], "issues": issues, "updated": now}, ensure_ascii=False))
+        except (OSError, ValueError) as error:
+            if not state["write_error"]:
+                print("wm-session: no se pudo publicar estado: {}".format(error), file=log, flush=True)
+            state["write_error"] = True
+        else:
+            state["write_error"] = False
+        state["published"] = issues
+        state["refresh"] = now + 5
+    state["pending"].update(set(issues) - state["announced"])
+    state["announced"] = set(issues)
+    notifications = next((service for service in services if service["argv"][0] == "dunst"), None)
+    if (not state["pending"] or notifications is None or notifications["problem"]
+            or notifications["process"] is None or notifications["process"].poll() is not None):
+        return
+    try:
+        result = command(["notify-send", "--app-name=wm-session", "--urgency=normal", "--expire-time=10000",
+                          "--hint=string:x-dunst-stack-tag:wm-session", "Incidencias de sesión",
+                          "Componentes afectados: " + ", ".join(sorted(state["pending"]))
+                          + ". Consulta Estado de sesión en el menú; dwm sigue funcionando."],
+                         required=False, timeout=2)
+        if result.returncode:
+            raise RuntimeError("falló notify-send")
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        print("wm-session: aviso no disponible: {}".format(error), file=log, flush=True)
+    state["pending"].clear()
+
+
+def show_health():
+    try:
+        issues = session_health()
+        rows = [name + ": " + message for name, message in sorted(issues.items())]
+        if not rows:
+            rows = ["Sesión sin incidencias detectadas por el supervisor"]
+    except (OSError, ValueError, RuntimeError) as error:
+        rows = ["Estado no disponible: " + str(error)]
+    choose(rows, "Estado de sesión")
 
 
 def stop(process):
@@ -240,6 +294,8 @@ def run():
         log.seek(0)
         log.truncate()
         children, services = [], []
+        warnings = {}
+        health = dict(published=None, announced=set(), pending=set(), write_error=False)
         interrupted = False
 
         def interrupt(signum, frame):
@@ -273,6 +329,7 @@ def run():
                     else:
                         raise RuntimeError("no inició el servicio de secretos")
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                warnings["secretos"] = "Servicio de secretos no disponible; consulta el registro"
                 print("wm-session: secretos no disponibles: {}".format(error), file=log, flush=True)
             try:
                 if not os.environ.get("SSH_AUTH_SOCK"):
@@ -286,6 +343,7 @@ def run():
                         raise RuntimeError("no apareció el socket GCR de esta sesión")
                     os.environ["SSH_AUTH_SOCK"] = str(agent)
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                warnings["ssh-agent"] = "Agente SSH no disponible; consulta el registro"
                 print("wm-session: agente SSH no disponible: {}".format(error), file=log, flush=True)
             command(["xsetroot", "-solid", "#f6f5f4", "-name", "wm"])
             wm = start(children, [str(Path(__file__).resolve().parent / "dwm")], log, required=False)
@@ -295,8 +353,10 @@ def run():
             try:
                 background = command(["wm-wallpaper", "--restore"], required=False)
                 if background.returncode:
+                    warnings["wm-wallpaper"] = "No se pudo restaurar el fondo"
                     print(background.stderr, file=log)
             except (OSError, subprocess.SubprocessError) as error:
+                warnings["wm-wallpaper"] = "No se pudo restaurar el fondo"
                 print("wm-wallpaper: " + str(error), file=log)
             optional(services, children, ["picom", "--config", str(DATA / "picom.conf")], log)
             optional(services, children, ["lxqt-policykit-agent"], log)
@@ -313,6 +373,7 @@ def run():
                     raise RuntimeError("se requiere Xfce Power Manager 4.20 o posterior")
                 configure_power()
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                warnings["xfce4-power-manager"] = "Gestión energética deshabilitada; consulta el registro"
                 print("wm-session: xfce4-power-manager deshabilitado: {}".format(error), file=log, flush=True)
             else:
                 # Since 4.20 it stays in the foreground unless --daemon is supplied.
@@ -322,6 +383,7 @@ def run():
             try:
                 command(["wm-appearance", "--apply-current"])
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                warnings["apariencia"] = "No se pudo aplicar la apariencia; consulta el registro"
                 print("wm-session: apariencia no aplicada: {}".format(error), file=log, flush=True)
             optional(services, children, [str(Path(__file__).resolve().parent / "wm-displays"), "--watch"], log)
             while wm.poll() is None and not interrupted:
@@ -331,6 +393,7 @@ def run():
                     if required and process.poll() is not None:
                         raise RuntimeError("terminó un componente necesario: {}".format(process.args[0]))
                 recover(services, children, log)
+                update_health(directory, services, warnings, health, log)
                 time.sleep(1)
             if not interrupted and wm.returncode:
                 raise RuntimeError("dwm terminó con código {}".format(wm.returncode))
@@ -360,11 +423,15 @@ def run():
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--logout", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--logout", action="store_true")
+    modes.add_argument("--status", action="store_true")
     options = parser.parse_args(argv)
     try:
         if options.logout:
             request_logout()
+        elif options.status:
+            show_health()
         else:
             run()
     except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:

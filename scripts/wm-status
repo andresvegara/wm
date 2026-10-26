@@ -9,6 +9,8 @@ import re
 import subprocess
 import sys
 
+from wm_session import session_health
+
 SUPPLIES = Path("/sys/class/power_supply")
 PROFILES = {"performance": "Rendimiento", "balanced": "Equilibrado", "power-saver": "Ahorro"}
 
@@ -88,11 +90,19 @@ def block(name, button):
     if name == "notifications":
         if button == "1":
             subprocess.Popen(["wm-run", "--", "wm-notifications"], start_new_session=True)
-        count = command(["dunstctl", "count", "history"], timeout=2)
-        level = command(["dunstctl", "get-pause-level"], timeout=2)
-        if not count.isascii() or not count.isdecimal() or not level.isascii() or not level.isdecimal() or int(level) > 100:
-            raise RuntimeError("estado de notificaciones inválido")
-        return "Avisos {}{}".format(count, " · DND" if int(level) else "")
+        try:
+            issues = session_health()
+            prefix = "Fallos {} · ".format(len(issues)) if issues else ""
+        except (OSError, ValueError, RuntimeError):
+            prefix = "Fallos ? · "
+        try:
+            count = command(["dunstctl", "count", "history"], timeout=2)
+            level = command(["dunstctl", "get-pause-level"], timeout=2)
+            if not count.isascii() or not count.isdecimal() or not level.isascii() or not level.isdecimal() or int(level) > 100:
+                raise RuntimeError("estado de notificaciones inválido")
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            return prefix + "Avisos ?"
+        return prefix + "Avisos {}{}".format(count, " · DND" if int(level) else "")
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 

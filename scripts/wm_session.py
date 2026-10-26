@@ -1,12 +1,14 @@
 # Shared session data and Rofi selection; no processes or configuration at import.
 import ctypes
 import json
+import math
 import os
 from pathlib import Path
 import re
 import stat
 import subprocess
 import tempfile
+import time
 
 DATA = Path(__file__).resolve().parent.parent / "share/wm"
 
@@ -163,6 +165,33 @@ def open_private(path, truncate=False):
     except BaseException:
         os.close(fd)
         raise
+
+
+def session_health():
+    session = os.environ.get("XDG_SESSION_ID", "")
+    runtime = os.environ.get("WM_DWM_RUNTIME", "")
+    if not session or not runtime:
+        raise RuntimeError("estado de sesión no disponible")
+    directory = Path(runtime)
+    if read_private(directory / "session.id") != session:
+        raise RuntimeError("el estado no pertenece a esta sesión activa")
+    content = read_private(directory / "health.json")
+    if content is None:
+        raise RuntimeError("estado de sesión todavía no disponible")
+    data = json.loads(content)
+    if (not isinstance(data, dict) or set(data) != {"session", "issues", "updated"}
+            or data["session"] != session or not isinstance(data["issues"], dict)
+            or len(data["issues"]) > 16 or type(data["updated"]) not in (int, float)
+            or not math.isfinite(data["updated"])):
+        raise ValueError("estado de sesión inválido")
+    if not 0 <= time.monotonic() - data["updated"] <= 15:
+        raise RuntimeError("estado de sesión desactualizado")
+    for name, message in data["issues"].items():
+        if (not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name)
+                or not isinstance(message, str) or not message or len(message) > 160
+                or not message.isprintable()):
+            raise ValueError("incidencia de sesión inválida")
+    return data["issues"]
 
 
 def write_private(path, content):

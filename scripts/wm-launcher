@@ -46,6 +46,7 @@ def actions():
     if awesome():
         return catalog
     catalog["Cerrar sesión"] = (["wm-supervisor", "--logout"], True)
+    catalog["Estado de sesión"] = (["wm-supervisor", "--status"], False)
     catalog["Ayuda de atajos"] = (["wm-launcher", "--shortcuts"], False)
     catalog["Fondo de pantalla"] = (["wm-wallpaper"], False)
     config = Path(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"))

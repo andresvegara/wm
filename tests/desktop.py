@@ -32,6 +32,10 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
             assert argv[argv.index("-monitor") + 1] == "-5" and "-no-custom" in argv
         assert launcher.actions()["Ayuda de atajos"] == (["wm-launcher", "--shortcuts"], False)
         assert launcher.actions()["Fondo de pantalla"] == (["wm-wallpaper"], False)
+        assert launcher.actions()["Estado de sesión"] == (["wm-supervisor", "--status"], False)
+        with patch.object(subprocess, "Popen") as popen:
+            launcher.execute_action("Estado de sesión")
+            assert popen.call_args.args[0] == ["wm-run", "--", "wm-supervisor", "--status"]
         with patch.object(subprocess, "Popen") as popen:
             launcher.execute_action("Fondo de pantalla")
             assert popen.call_args.args[0] == ["wm-run", "--", "wm-wallpaper"]
@@ -126,6 +130,7 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
     with patch.dict(os.environ, XDG_CURRENT_DESKTOP="awesome"), \
          patch.object(launcher, "choose", side_effect=AssertionError("duplicate external UI")):
         assert "Fondo de pantalla" not in launcher.actions()
+        assert "Estado de sesión" not in launcher.actions()
         for name in launcher.actions():
             with patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "boolean true")) as run:
                 launcher.execute_action(name)
