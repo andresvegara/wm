@@ -7,24 +7,33 @@ fixture=$work/source\ tree
 bin=$work/bin
 dest=$work/destination\ tree
 mkdir -p "$fixture/scripts" "$fixture/session" "$bin" "$work/build"
-cp "$root/scripts/install.sh" "$root/scripts/dependencies.tsv" "$root/scripts/wm-launcher" "$root/scripts/wm-supervisor" "$root/scripts/wm-displays" "$root/scripts/wm-run" "$root/scripts/wm-control" "$fixture/scripts/"
+for file in "$root"/scripts/*; do
+	[ ! -f "$file" ] || cp "$file" "$fixture/scripts/"
+done
 cp -R "$root/session/." "$fixture/session/"
 cp "$root/checkouts.tsv" "$fixture/checkouts.tsv"
+printf 'synthetic wallpaper resource\n' > "$fixture/wallpaper.png"
+XDG_DATA_HOME=$work/user-data
+export XDG_DATA_HOME
+mkdir -p "$XDG_DATA_HOME/wm/dwm"
+printf 'saved user choice\n' > "$XDG_DATA_HOME/wm/dwm/wallpaper"
 
 fail()
 {
 	printf 'installer test: %s\n' "$*" >&2
+	[ ! -f "$work/output" ] || /usr/bin/tail -35 "$work/output" >&2
+	[ ! -f "$work/log" ] || /usr/bin/tail -20 "$work/log" >&2
 	exit 1
 }
 
 # Every command not explicitly allowed below is a mock, including graphical apps.
 tab=$(printf '\t')
 while IFS="$tab" read -r kind name package path; do
-	[ "$kind" = command ] || continue
+	case "$kind" in command|awesome-command) ;; *) continue ;; esac
 	printf '#!/bin/sh\nexit 0\n' > "$bin/$name"
 	chmod 755 "$bin/$name"
 done < "$root/scripts/dependencies.tsv"
-for cmd in sh env tar cp rm mkdir mv mktemp cmp find sed grep tr head; do
+for cmd in sh env tar cp rm mkdir mv mktemp cmp find sed grep tr head chmod; do
 	ln -sf "/usr/bin/$cmd" "$bin/$cmd"
 done
 cat_mock()
@@ -78,25 +87,27 @@ clean) exit 0 ;;
 'CC=cc PREFIX=/usr/local all') ;;
 *) exit 90 ;;
 esac
-[ ! -f "$src/config.h" ] || exit 91
+[ ! -f "$src/config.h" ] || [ "${src##*/}" = dwmblocks ] || exit 91
 [ "${MOCK_MAKE_FAIL-}" != "${src##*/}" ] || exit 42
 case "${src##*/}" in
 dwm) outputs=dwm ;;
 dmenu) outputs='dmenu stest' ;;
 st) outputs=st ;;
+dwmblocks) outputs='dwmblocks wm-keyboard' ;;
 *) exit 90 ;;
 esac
 for output in $outputs; do cp "$src/PAYLOAD" "$src/$output"; done
 MOCK
 cat_mock python3 <<'MOCK'
 #!/bin/sh
-[ ! -f "$MOCK_STATE/pygi" ]
+[ "$1" = -c ] && [ "$2" = 'import sys; assert sys.version_info >= (3, 9)' ] && [ ! -f "$MOCK_STATE/python-version" ]
 MOCK
 cat_mock pkg-config <<'MOCK'
 #!/bin/sh
 case "$1" in
 --exists) [ ! -f "$MOCK_STATE/pc-$2" ] ;;
 --variable=pc_path) printf '%s\n' "$MOCK_STATE/pc search:/virtual/lib/pkgconfig" ;;
+--cflags|--libs) ;;
 *) exit 90 ;;
 esac
 MOCK
@@ -141,7 +152,7 @@ printf 'paru %s\n' "$*" >> "$MOCK_LOG"
 [ "${MOCK_PARU_NOFIX-0}" = 0 ] || exit 0
 rm -f "$MOCK_STATE/pc-xft" "$MOCK_STATE/font"
 if [ ! -f "$MOCK_BIN/cc" ]; then
-	printf '#!/bin/sh\nexit 0\n' > "$MOCK_BIN/cc"
+	printf '#!/bin/sh\nwhile [ "$1" != -o ]; do shift; done\nprintf "synthetic helper\\n" > "$2"\n' > "$MOCK_BIN/cc"
 	/usr/bin/chmod 755 "$MOCK_BIN/cc"
 fi
 MOCK
@@ -199,28 +210,38 @@ else
 fi
 MOCK
 
-for project in dwm dmenu st; do
+for project in dwm dmenu st dwmblocks; do
 	src=$fixture/$project
 	mkdir -p "$src/.git"
 	printf 'VERSION = 1.2\n' > "$src/config.mk"
 	printf 'synthetic %s\n' "$project" > "$src/PAYLOAD"
 	printf 'stale\n' > "$src/config.h"
 	printf '%s\n' config.mk PAYLOAD config.h > "$src/tracked"
+	if [ "$project" != dwmblocks ]; then
+		printf 'synthetic template\n' > "$src/config.def.h"
+		printf 'config.def.h\n' >> "$src/tracked"
+	fi
 	case "$project" in
-	dwm) manuals=dwm ;;
-	dmenu) manuals='dmenu stest';
+	dwm) ;;
+	dmenu)
 		for file in dmenu_run dmenu_path; do
 			printf '#!/bin/sh\nexit 0\n' > "$src/$file"
 			printf '%s\n' "$file" >> "$src/tracked"
 		done ;;
-	st) manuals=st; printf 'synthetic source\n' > "$src/st.info"
+	st) printf 'synthetic source\n' > "$src/st.info"
 		printf 'st.info\n' >> "$src/tracked" ;;
 	esac
-	for manual in $manuals; do
-		printf '%s VERSION\n' "$manual" > "$src/$manual.1"
-		printf '%s.1\n' "$manual" >> "$src/tracked"
-	done
 done
+
+# The default stages Awesome too; all new payloads remain synthetic.
+mkdir -p "$fixture/awesome/config" "$fixture/awesome/widgets"
+cp "$root/awesome/rc.lua" "$fixture/awesome/"
+cp -R "$root/awesome/config/." "$fixture/awesome/config/"
+cp -R "$root/awesome/widgets/." "$fixture/awesome/widgets/"
+for helper in wm-close wm-monitor; do
+	printf '/* synthetic */\n' > "$fixture/awesome/$helper.c"
+done
+cp "$root/scripts/awesome-supervisor" "$root/scripts/wm-command" "$fixture/scripts/"
 
 export MOCK_LOG=$work/log MOCK_STATE=$work MOCK_BIN=$bin MOCK_DEST=$dest
 export WM_RESOURCE_ROOT=$work/resources
@@ -228,6 +249,12 @@ mkdir -p "$WM_RESOURCE_ROOT/usr/lib/systemd/user"
 for unit in gnome-keyring-daemon.socket gnome-keyring-daemon.service gcr-ssh-agent.socket gcr-ssh-agent.service; do
 	printf synthetic > "$WM_RESOURCE_ROOT/usr/lib/systemd/user/$unit"
 done
+while IFS="$tab" read -r kind name package path; do
+	case "$kind" in resource|awesome-resource)
+		mkdir -p "$WM_RESOURCE_ROOT${path%/*}"
+		printf synthetic > "$WM_RESOURCE_ROOT$path" ;;
+	esac
+done < "$root/scripts/dependencies.tsv"
 export WM_OS_RELEASE=$work/os-release
 export DESTDIR=$dest
 printf 'ID=other\n' > "$WM_OS_RELEASE"
@@ -304,13 +331,24 @@ run || { /usr/bin/tail -50 "$work/output"; fail 'Arch install'; }
 [ "$(grep -c '^paru ' "$MOCK_LOG")" = 1 ] || fail 'more than one paru invocation'
 grep -q 'paru -S --needed gcc libxft ttf-hack-nerd noto-fonts-emoji' "$MOCK_LOG" || fail 'wrong Arch packages'
 [ -x "$dest/usr/local/bin/st" ] || fail 'missing executable'
+[ -x "$dest/usr/local/bin/awesome-session" ] || fail 'default omitted Awesome'
+[ -f "$dest/usr/local/share/wm/awesome/config/session.lua" ] || fail 'native session missing'
+[ -f "$dest/usr/local/share/xsessions/awesome.desktop" ] || fail 'Awesome entry missing'
 [ -x "$dest/usr/local/bin/wm-displays" ] || fail 'missing display manager'
 [ -x "$dest/usr/local/bin/wm-run" ] || fail 'missing launch reporter'
 [ -x "$dest/usr/local/bin/wm-control" ] || fail 'missing OSD controls'
 cmp "$root/scripts/wm-control" "$dest/usr/local/bin/wm-control" || fail 'wrong OSD controls'
 cmp "$root/scripts/wm-run" "$dest/usr/local/bin/wm-run" || fail 'wrong launch reporter'
-cmp "$root/session/pulse-client.conf" "$dest/usr/local/share/wm/pulse-client.conf" || fail 'missing Pulse client default'
-[ "$(stat -c %a "$dest/usr/local/share/wm/pulse-client.conf")" = 644 ] || fail 'Pulse client default mode'
+[ ! -e "$dest/usr/local/share/wm/pulse-client.conf" ] || fail 'obsolete Pulse client config installed'
+for helper in wm-appearance wm-notifications wm-lock wm-randr-watch wm-wallpaper; do
+	[ -x "$dest/usr/local/bin/$helper" ] || fail "missing helper: $helper"
+done
+cmp "$root/scripts/wm-wallpaper" "$dest/usr/local/bin/wm-wallpaper" || fail 'wrong wallpaper helper'
+cmp "$fixture/wallpaper.png" "$dest/usr/local/share/wm/wallpaper.png" || fail 'wrong default wallpaper'
+[ "$(stat -c %a "$dest/usr/local/share/wm/wallpaper.png")" = 644 ] || fail 'wallpaper mode'
+grep -qx 'saved user choice' "$XDG_DATA_HOME/wm/dwm/wallpaper" || fail 'user wallpaper overwritten'
+cmp "$root/scripts/wm_session.py" "$dest/usr/local/bin/wm_session.py" || fail 'shared Python module missing'
+cmp "$root/awesome/config/themes.json" "$dest/usr/local/share/wm/themes.json" || fail 'shared palette missing'
 cmp "$root/scripts/wm-displays" "$dest/usr/local/bin/wm-displays" || fail 'wrong display manager'
 [ -x "$dest/usr/local/bin/wm-session" ] || fail 'missing session wrapper'
 [ "$(stat -c %a "$dest/usr/share/xsessions/wm.desktop")" = 644 ] || fail 'session desktop mode'
@@ -318,8 +356,36 @@ grep -qx 'Exec=/usr/local/bin/wm-session' "$dest/usr/share/xsessions/wm.desktop"
 grep -qx 'Type=Application' "$dest/usr/share/xsessions/wm.desktop" || fail 'session desktop type'
 if grep -q '^Hidden=true\|^NoDisplay=true' "$dest/usr/share/xsessions/wm.desktop"; then fail 'hidden X11 session'; fi
 [ -f "$dest/usr/local/share/terminfo/s/st-256color" ] || fail 'missing isolated terminfo'
-[ "$(/usr/bin/stat -c %a "$dest/usr/local/share/man/man1/st.1")" = 644 ] || fail 'manual mode'
-grep -q 'st 1.2' "$dest/usr/local/share/man/man1/st.1" || fail 'manual version'
+[ ! -e "$dest/usr/local/share/man" ] || fail 'manuals installed'
+
+# No default image is distributed; a clean install must still work.
+mv "$fixture/wallpaper.png" "$work/wallpaper.good"
+(
+	export DESTDIR="$work/no-image" MOCK_DEST="$work/no-image"
+	run || fail 'install without default wallpaper'
+)
+[ -x "$work/no-image/usr/local/bin/wm-wallpaper" ] || fail 'missing wallpaper selector without default'
+[ ! -e "$work/no-image/usr/local/share/wm/wallpaper.png" ] || fail 'unexpected default wallpaper'
+grep -qx 'saved user choice' "$XDG_DATA_HOME/wm/dwm/wallpaper" || fail 'user wallpaper touched without default'
+# Invalid packaged defaults still fail before publication.
+ln -s "$work/wallpaper.good" "$fixture/wallpaper.png"
+reject
+no_publish
+rm "$fixture/wallpaper.png"
+mv "$work/wallpaper.good" "$fixture/wallpaper.png"
+grep -qx 'saved user choice' "$XDG_DATA_HOME/wm/dwm/wallpaper" || fail 'user wallpaper touched'
+
+# An unrelated man directory symlink must not block or receive any writes.
+mv "$dest" "$work/first-install"
+mkdir -p "$dest/usr/local/share" "$work/manuals/man1"
+printf 'untouched\n' > "$work/manuals/man1/sentinel"
+ln -s "$work/manuals" "$dest/usr/local/share/man"
+run || fail 'install with linked man directory'
+[ -L "$dest/usr/local/share/man" ] || fail 'man symlink replaced'
+[ "$(find "$work/manuals" -type f | /usr/bin/wc -l)" = 1 ] || fail 'manuals written through symlink'
+grep -qx untouched "$work/manuals/man1/sentinel" || fail 'existing manual changed'
+[ -x "$dest/usr/local/bin/wm-session" ] || fail 'session missing with linked man directory'
+cmp "$fixture/session/wm.desktop" "$dest/usr/share/xsessions/wm.desktop" || fail 'SDDM entry missing with linked man directory'
 [ -z "$(find "$work/build" -mindepth 1 -print)" ] || fail 'temporary build leaked'
 if grep -q '^enable ' "$MOCK_LOG"; then fail 'DESTDIR enabled services'; fi
 
@@ -374,12 +440,6 @@ while IFS="$tab" read -r kind name package path; do
 		grep -Fq "$path" "$work/output" || fail "unchecked user unit: $name"
 		mv "$work/held-unit" "$WM_RESOURCE_ROOT/usr/lib/systemd/user/$name"
 		;;
-	pygi)
-		printf missing > "$work/pygi"
-		reject
-		grep -Fq "$path" "$work/output" || fail 'unchecked GIO module'
-		rm "$work/pygi"
-		;;
 	pc)
 		printf missing > "$work/pc-$name"
 		reject
@@ -391,6 +451,11 @@ while IFS="$tab" read -r kind name package path; do
 	[ ! -s "$MOCK_LOG" ] || fail 'dependency failure triggered work'
 done < "$root/scripts/dependencies.tsv"
 [ ! -e "$work/os-executed" ] || fail 'os-release was executed as code'
+printf old > "$work/python-version"
+reject
+grep -q 'requiere Python >= 3.9' "$work/output" || fail 'old Python accepted'
+no_publish
+rm "$work/python-version"
 
 # Conflicts, masked required units and unknown system states abort before copies.
 MOCK_DISPLAY_MANAGER=gdm.service; export MOCK_DISPLAY_MANAGER
@@ -435,6 +500,10 @@ run || fail 'repair permissions'
 [ "$(/usr/bin/stat -c %a "$dest/usr/local/bin/dmenu")" = 755 ] || fail 'permissions not repaired'
 
 # Failures before publishing leave all final files intact.
+mv "$fixture/awesome/rc.lua" "$work/awesome-rc"
+reject
+no_publish
+mv "$work/awesome-rc" "$fixture/awesome/rc.lua"
 MOCK_MAKE_FAIL=st; export MOCK_MAKE_FAIL
 reject
 no_publish
@@ -506,24 +575,16 @@ cp "$fixture/scripts/install.sh" "$work/install.original"
 sed 's/target=$dest/target=$MOCK_DEST/' "$work/install.original" > "$fixture/scripts/install.sh"
 DESTDIR=
 MOCK_ALLOW_SUDO=1; export MOCK_ALLOW_SUDO
-run || { /usr/bin/tail -30 "$work/output"; fail 'future service enable'; }
-[ "$(grep -c '^enable ' "$MOCK_LOG")" = 2 ] || fail 'services not enabled exactly once'
-run || fail 'repeat future service enable'
+run || { /usr/bin/tail -30 "$work/output"; fail 'privileged copies'; }
+if grep -q '^enable \|^FORBIDDEN' "$MOCK_LOG"; then fail 'service mutation'; fi
+run || fail 'repeat privileged copies'
 no_publish
-if grep -q '^enable ' "$MOCK_LOG"; then fail 'enabled services rewritten'; fi
-rm "$work/enabled-sddm.service"
-MOCK_ENABLE_FAIL=1; export MOCK_ENABLE_FAIL
-reject
-grep -q 'archivos instalados, pero falló' "$work/output" || fail 'enable failure not diagnosed'
-unset MOCK_ENABLE_FAIL
-run || fail 'repair enable failure'
-[ "$(grep -c '^enable ' "$MOCK_LOG")" = 1 ] || fail 'wrong enable repair'
 unset MOCK_ALLOW_SUDO
 DESTDIR=$dest
 cp "$work/install.original" "$fixture/scripts/install.sh"
 [ -x "$dest/usr/local/bin/wm-supervisor" ] || fail 'supervisor not packaged'
 [ ! -e "$dest/usr/local/share/wm/tint2rc" ] || fail 'obsolete tray config packaged'
-for config in dunstrc picom.conf pulse-client.conf; do
+for config in dunstrc picom.conf rofi.rasi; do
 	cmp "$fixture/session/$config" "$dest/usr/local/share/wm/$config" || fail 'session defaults'
 	[ "$(/usr/bin/stat -c %a "$dest/usr/local/share/wm/$config")" = 644 ] || fail 'session default mode'
 done
@@ -533,7 +594,7 @@ cat_mock unused <<'MOCK'
 #!/bin/sh
 set -eu
 [ "$XDG_CURRENT_DESKTOP:$XDG_SESSION_DESKTOP:$DESKTOP_SESSION" = dwm:dwm:dwm ]
-[ "$GTK_THEME:$QT_QPA_PLATFORMTHEME:$QT_STYLE_OVERRIDE:$QT_QUICK_CONTROLS_STYLE" = Adwaita:generic:Fusion:Fusion ]
+[ "${GTK_THEME-unset}:$QT_QPA_PLATFORMTHEME:$QT_STYLE_OVERRIDE:$QT_QUICK_CONTROLS_STYLE" = unset:generic:Fusion:Fusion ]
 [ -z "${KDE_FULL_SESSION+x}${KDE_SESSION_VERSION+x}${QT_QUICK_CONTROLS_CONF+x}" ]
 [ "$HOME:$XDG_CONFIG_HOME" = "$SESSION_HOME:$SESSION_CONFIG" ]
 [ "$TERMINFO_DIRS" = "$SESSION_BINDIR/../share/terminfo:/custom/terminfo:" ]
@@ -559,10 +620,14 @@ printf '%s\n' 'PASS: installer dependencies, Arch/paru, staging, failures, idemp
 for cmd in cc as ld make pkg-config tic; do
 	ln -sf "/usr/bin/$cmd" "$bin/$cmd"
 done
-for project in dwm dmenu st; do
-	cp -R "$2/$project/." "$fixture/$project/"
+for project in dwm dmenu st dwmblocks; do
+	source=$2/$project
+	[ -d "$source" ] || source=$root/$project
 	/usr/bin/git -C "$root/$project" ls-files > "$fixture/$project/tracked"
+	tar -cf "$work/real-source.tar" -C "$source" -T "$fixture/$project/tracked"
+	tar -xf "$work/real-source.tar" -C "$fixture/$project"
 done
+cp "$root/awesome/wm-close.c" "$root/awesome/wm-monitor.c" "$fixture/awesome/"
 DESTDIR=$work/real\ destination
 MOCK_DEST=$DESTDIR
 printf 'ID=other\n' > "$WM_OS_RELEASE"

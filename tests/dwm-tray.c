@@ -11,6 +11,11 @@ static unsigned long readyvalues[2];
 static XEvent queuedevent;
 static void reset(void);
 static void snapto(unsigned int direction);
+static int recordbar, bartexts;
+static struct {
+	int x, w, invert;
+	char text[256];
+} barlabels[16];
 
 void
 test_drw_setscheme(Drw *drawing, Clr *colors)
@@ -33,7 +38,16 @@ int
 test_drw_text(Drw *drawing, int x, int y, unsigned int w, unsigned int h,
 	unsigned int padding, const char *text, int invert)
 {
-	assert(w <= (unsigned int)sw && h == (unsigned int)bh);
+	if (recordbar) {
+		assert(bartexts < LENGTH(barlabels));
+		barlabels[bartexts].x = x;
+		barlabels[bartexts].w = w;
+		barlabels[bartexts].invert = invert;
+		snprintf(barlabels[bartexts++].text, sizeof barlabels[0].text, "%s", text);
+	}
+	assert(w <= (unsigned int)sw);
+	assert(h == (unsigned int)bh || (switchwin && h == (unsigned int)bh + 8)
+		|| (th && h == (unsigned int)th));
 	return x + w;
 }
 
@@ -89,7 +103,8 @@ XGetWindowAttributes(Display *display, Window win, XWindowAttributes *wa)
 	if (win == 99)
 		return 0;
 	*wa = (XWindowAttributes){.width = 24, .height = 24,
-		.class = win == 98 ? InputOnly : InputOutput};
+		.class = win == 98 ? InputOnly : InputOutput,
+		.map_state = traymapped[win] ? IsViewable : IsUnmapped};
 	return 1;
 }
 

@@ -23,9 +23,14 @@ static Fnt testfont = { .h = 16 };
 static Drw testdrw = { .fonts = &testfont };
 static Clr testcolors[3];
 static Clr *testscheme[] = { testcolors, testcolors };
+static Clr testgradient[24];
 static int deleteprotocol, closeevents, replayevents, configureevents;
 static Window focused, raised, transient, mapped;
 static Atom windowtype, initialstate;
+static Atom savedstates[128][16];
+static unsigned int statecounts[128];
+static int clientdecoration;
+static XWindowChanges clientpositions[128];
 static unsigned int lastborder;
 static const char *setuppropertyvalue;
 static int setuppropertyformat;
@@ -53,10 +58,28 @@ XGetWindowProperty(Display *display, Window w, Atom property, long offset,
 		*actual = embedtype ? embedtype : xembedinfo;
 		*format = embedformat;
 		*count = embedcount;
+	} else if (property == motifatom && clientdecoration == 1) {
+		*data = calloc(5, sizeof(long));
+		((long *)*data)[0] = 2;
+		*actual = motifatom;
+		*format = 32;
+		*count = 5;
+	} else if (property == csdatom && clientdecoration == 2) {
+		*data = calloc(4, sizeof(long));
+		*actual = XA_CARDINAL;
+		*format = 32;
+		*count = 4;
+	} else if (property == netatom[NetWMState] && w < LENGTH(statecounts) && statecounts[w]) {
+		*count = statecounts[w];
+		*data = malloc(*count * sizeof(Atom));
+		memcpy(*data, savedstates[w], *count * sizeof(Atom));
+		*actual = XA_ATOM;
+		*format = 32;
 	} else if ((property == netatom[NetWMWindowType] && windowtype)
 	|| (property == netatom[NetWMState] && initialstate)) {
 		*data = malloc(sizeof(long));
 		*(long *)*data = property == netatom[NetWMWindowType] ? windowtype : initialstate;
+		*actual = XA_ATOM;
 		*format = 32;
 		*count = 1;
 	}
@@ -69,7 +92,63 @@ XSetWindowBorderWidth(Display *display, Window w, unsigned int width)
 	lastborder = width;
 	return 1;
 }
+int
+XSetClassHint(Display *display, Window window, XClassHint *hint)
+{
+	return 1;
+}
+
 static unsigned int ungrabs[64];
+static unsigned int plainclickgrabs;
+static int keyboardgrabfail, keyboardungrabs;
+static KeySym testkey;
+static char heldkeys[32];
+
+int
+XGrabPointer(Display *display, Window window, Bool owner, unsigned int mask,
+	int pointermode, int keyboardmode, Window confine, Cursor cursor, Time time)
+{
+	return GrabSuccess;
+}
+
+int
+XUngrabPointer(Display *display, Time time)
+{
+	return 1;
+}
+
+int
+XGrabKeyboard(Display *display, Window win, Bool owner, int pointermode,
+	int keyboardmode, Time time)
+{
+	return keyboardgrabfail ? AlreadyGrabbed : GrabSuccess;
+}
+
+int
+XUngrabKeyboard(Display *display, Time time)
+{
+	keyboardungrabs++;
+	return 1;
+}
+
+KeySym
+XKeycodeToKeysym(Display *display, KeyCode code, int index)
+{
+	return testkey;
+}
+
+KeyCode
+XKeysymToKeycode(Display *display, KeySym key)
+{
+	return key == XK_Alt_L ? 8 : 9;
+}
+
+int
+XQueryKeymap(Display *display, char keys[32])
+{
+	memcpy(keys, heldkeys, 32);
+	return 1;
+}
 
 /* Never let a test open a real display, even if its environment is wrong. */
 Display *
@@ -98,6 +177,11 @@ XConfigureWindow(Display *display, Window window, unsigned int mask,
 	if (mask & CWHeight)
 		assert(changes->height > 0);
 	configureevents++;
+	assert(window < LENGTH(clientpositions));
+	if (mask & CWX) clientpositions[window].x = changes->x;
+	if (mask & CWY) clientpositions[window].y = changes->y;
+	if (mask & CWWidth) clientpositions[window].width = changes->width;
+	if (mask & CWHeight) clientpositions[window].height = changes->height;
 	return 1;
 }
 
@@ -169,6 +253,10 @@ XGrabButton(Display *display, unsigned int button, unsigned int modifiers,
 	Window window, Bool owner, unsigned int mask, int pointermode,
 	int keyboardmode, Window confine, Cursor pointer)
 {
+	if (button == Button1 && !(modifiers & MODKEY)) {
+		assert(pointermode == GrabModeSync);
+		plainclickgrabs++;
+	}
 	return 1;
 }
 
@@ -189,6 +277,11 @@ int
 XChangeProperty(Display *display, Window window, Atom property, Atom type,
 	int format, int mode, const unsigned char *data, int count)
 {
+	if (property == netatom[NetWMState]) {
+		assert(window < LENGTH(savedstates) && count <= 16 && type == XA_ATOM && format == 32);
+		memcpy(savedstates[window], data, count * sizeof(Atom));
+		statecounts[window] = count;
+	}
 	if (trayready && property == trayready) {
 		assert(window == root && type == XA_CARDINAL && format == 32 && count == 2);
 		memcpy(readyvalues, data, sizeof readyvalues);
@@ -320,6 +413,7 @@ reset(void)
 	failselection = 0;
 	trayparents[50] = root;
 	memset(traymapped, 0, sizeof traymapped);
+	traymapped[10] = traymapped[20] = 1;
 	memset(traysaved, 0, sizeof traysaved);
 	monitor = (Monitor){0};
 	other = (Monitor){0};
@@ -347,6 +441,9 @@ reset(void)
 	dpy = NULL;
 	root = 1;
 	bh = 18;
+	th = 0;
+	titlecolors[0] = titlecolors[1] = testcolors;
+	titlegradient[0] = titlegradient[1] = testgradient;
 	sw = 4000;
 	sh = 2400;
 	deleteprotocol = closeevents = replayevents = configureevents = 0;
@@ -359,6 +456,19 @@ reset(void)
 	setuppropertyformat = 8;
 	setuppropertytype = XA_STRING;
 	memset(ungrabs, 0, sizeof ungrabs);
+	plainclickgrabs = 0;
+	assert(!switchwin && !switchitems);
+	keyboardgrabfail = keyboardungrabs = 0;
+	memset(heldkeys, 0, sizeof heldkeys);
+	focusserial = 0;
+	focusedclient = None;
+	clientdecoration = 0;
+	motifatom = 401;
+	csdatom = 402;
+	frameatom = 403;
+	memset(savedstates, 0, sizeof savedstates);
+	memset(statecounts, 0, sizeof statecounts);
+	memset(clientpositions, 0, sizeof clientpositions);
 	for (i = 0; i < NetLast; i++)
 		netatom[i] = 100 + i;
 	for (i = 0; i < WMLast; i++)
@@ -548,37 +658,17 @@ testfocus(void)
 	other.mx = other.wx = 1;
 	other.mw = other.ww = 1000;
 	other.mh = other.wh = 800;
-	event.xcrossing.window = second.win;
-	event.xcrossing.mode = NotifyGrab;
-	enternotify(&event);
+	assert(!handler[EnterNotify]);
 	assert(monitor.sel == &first && selmon == &monitor);
-	event.xcrossing.mode = NotifyNormal;
-	event.xcrossing.detail = NotifyInferior;
-	enternotify(&event);
-	assert(monitor.sel == &first && selmon == &monitor);
-	event.xcrossing.detail = NotifyNonlinear;
-	enternotify(&event);
-	assert(monitor.sel == &second && focused == second.win);
 	assert(raised == None);
-	focus(&first);
-	second.isdock = 1;
-	enternotify(&event);
-	assert(monitor.sel == &first && focused == first.win);
-	second.isdock = 0;
 	event.xmotion.window = root;
 	event.xmotion.x_root = 100;
 	event.xmotion.y_root = 100;
 	motionnotify(&event);
-	assert(selmon == &other && focused == root);
+	assert(selmon == &monitor && monitor.sel == &first);
 	event.xmotion.window = first.win;
 	event.xmotion.x_root = -500;
 	motionnotify(&event);
-	assert(selmon == &other);
-	event.xcrossing.window = root;
-	event.xcrossing.mode = NotifyNormal;
-	event.xcrossing.x_root = -500;
-	event.xcrossing.y_root = 100;
-	enternotify(&event);
 	assert(selmon == &monitor && monitor.sel == &first);
 	expectgeom(-900, 100, 601, 401);
 	event.xbutton.window = second.win;
@@ -596,6 +686,323 @@ testfocus(void)
 	event.xclient.window = 999;
 	clientmessage(&event);
 	assert(monitor.sel == &second);
+}
+
+static void
+testtitlebar(void)
+{
+	XEvent event = {0};
+	int outerheight;
+
+	reset();
+	assert(!showtitlebar);
+	th = showtitlebar ? MAX(24, bh) : 0;
+	createtitle(&first);
+	assert(!first.titlebar && !titleh(&first));
+	th = 24;
+	clientdecoration = 1;
+	createtitle(&first);
+	assert(!first.titlebar);
+	clientdecoration = 2;
+	createtitle(&first);
+	assert(!first.titlebar);
+	clientdecoration = 0;
+	createtitle(&first);
+	assert(first.titlebar && titleh(&first) == 26);
+	first.h += titleh(&first);
+	outerheight = first.h;
+	resizeclient(&first, first.x, first.y, first.w, first.h);
+	assert(first.h == outerheight && titleclient(first.titlebar) == &first);
+	assert(clientpositions[first.win].y == first.y + 26);
+	assert(clientpositions[first.win].height == first.h - 26);
+	assert(titlebutton(&first, first.w - 1) == 2);
+	assert(titlebutton(&first, first.w - th - 1) == 1);
+	assert(titlebutton(&first, first.w - 2 * th - 1) == 0);
+	assert(titlebutton(&first, 1) == -1);
+	setfullscreen(&first, 1);
+	assert(!titleh(&first) && !traymapped[first.titlebar]);
+	setfullscreen(&first, 0);
+	assert(titleh(&first) == 26 && first.h == outerheight);
+	snapto(PlaceLeft);
+	assert(first.h == monitor.wh - 2 * first.bw);
+	assert(first.x == monitor.wx);
+	/* Release outside a pressed button must not close the client. */
+	first.pressedbutton = 2;
+	event.xbutton.window = first.titlebar;
+	event.xbutton.button = Button1;
+	event.xbutton.x = first.w - 1;
+	event.xbutton.y = -1;
+	buttonrelease(&event);
+	assert(!closeevents && first.pressedbutton == -1);
+	deleteprotocol = 1;
+	first.pressedbutton = 2;
+	event.xbutton.y = 1;
+	buttonrelease(&event);
+	assert(closeevents == 1);
+	first.pressedbutton = 0;
+	event.xbutton.x = first.w - 3 * th + 1;
+	buttonrelease(&event);
+	assert(first.ishidden && !traymapped[first.titlebar]);
+	resizeclient(&first, first.x, first.y, first.w, first.h);
+	assert(clientpositions[first.win].x == -2 * WIDTH(&first));
+	restoreclient(&first);
+	assert(!first.ishidden && traymapped[first.titlebar]);
+	windowmenu(&first);
+	assert(switchmenu && switchcount == 4);
+	endswitcher(1);
+	assert(first.isabove && !switchwin);
+	windowmenu(&first);
+	switchindex = 1;
+	endswitcher(1);
+	assert(first.ishidden);
+	restoreclient(&first);
+	first.titlebar = None;
+	first.isdock = 1;
+	createtitle(&first);
+	assert(!first.titlebar);
+}
+
+static void
+testtaskbar(void)
+{
+	XEvent event = {0};
+	Client dock, elsewhere;
+	int start, end;
+	unsigned int i;
+
+	reset();
+	monitor.showbar = 1;
+	monitor.barwin = 2;
+	statusmon = &monitor;
+	strcpy(stext, "Status");
+	strcpy(first.name, "First");
+	second = first;
+	second.win = 20;
+	second.ishidden = second.isurgent = 1;
+	strcpy(second.name, "Second");
+	first.next = first.snext = &second;
+	dock = first;
+	dock.win = 30;
+	dock.isdock = 1;
+	elsewhere = first;
+	elsewhere.win = 40;
+	elsewhere.tags = 2;
+	second.next = &dock;
+	dock.next = &elsewhere;
+	elsewhere.next = NULL;
+	start = barstartwidth(&monitor);
+	end = monitor.ww - barstatuswidth(&monitor);
+	assert(start > 0 && end > start);
+	recordbar = 1;
+	bartexts = 0;
+	drawbar(&monitor);
+	recordbar = 0;
+	assert(bartexts == 4);
+	assert(!strcmp(barlabels[0].text, "Inicio"));
+	assert(!strcmp(barlabels[1].text, "Status"));
+	assert(!strcmp(barlabels[2].text, "First"));
+	assert(!strcmp(barlabels[3].text, "[min] Second") && barlabels[3].invert);
+	assert(barlabels[2].x == start && barlabels[3].x + barlabels[3].w == end);
+	assert(!taskbar(&monitor, start - 1) && !taskbar(&monitor, end));
+	for (i = 2; i < 4; i++) {
+		assert(taskbar(&monitor, barlabels[i].x) == (i == 2 ? &first : &second));
+		assert(taskbar(&monitor, barlabels[i].x + barlabels[i].w - 1)
+			== (i == 2 ? &first : &second));
+	}
+	event.xproperty.window = second.win;
+	event.xproperty.atom = netatom[NetWMName];
+	bartexts = 0;
+	recordbar = 1;
+	propertynotify(&event);
+	recordbar = 0;
+	assert(bartexts == 4); /* Title changes also redraw unfocused/minimized clients. */
+	memset(&event, 0, sizeof event);
+	event.xbutton.window = monitor.barwin;
+	event.xbutton.button = Button1;
+	event.xbutton.x = barlabels[3].x;
+	buttonpress(&event);
+	assert(!second.ishidden && monitor.sel == &second && focused == second.win);
+	assert(!second.isurgent);
+	buttonpress(&event);
+	assert(second.ishidden && monitor.sel == &first);
+	event.xbutton.x = start;
+	event.xbutton.state = Mod4Mask;
+	buttonpress(&event);
+	assert(!first.ishidden);
+	event.xbutton.state = 0;
+	event.xbutton.x = -1;
+	buttonpress(&event);
+	assert(!first.ishidden);
+	assert(!strcmp(startcmd[0], "wm-launcher") && !strcmp(startcmd[1], "--start"));
+	for (i = 0; i < LENGTH(buttons); i++)
+		if (buttons[i].click == ClkStart && buttons[i].button == Button1)
+			break;
+	assert(i < LENGTH(buttons) && buttons[i].func == spawn && buttons[i].arg.v == startcmd);
+	/* The other monitor contains only its own clients. First click activates. */
+	monitor.next = &other;
+	other = monitor;
+	other.next = NULL;
+	other.barwin = 3;
+	other.clients = other.stack = other.sel = &elsewhere;
+	elsewhere.mon = &other;
+	elsewhere.tags = 1;
+	elsewhere.snext = NULL;
+	dock.next = NULL;
+	assert(taskbar(&other, barstartwidth(&other)) == &elsewhere);
+	assert(taskbar(&monitor, start) == &first);
+	event.xbutton.window = other.barwin;
+	event.xbutton.x = barstartwidth(&other);
+	buttonpress(&event);
+	assert(selmon == &other && other.sel == &elsewhere && !elsewhere.ishidden);
+	/* Empty and tiny task areas must neither divide by zero nor overlap status. */
+	other.clients = NULL;
+	assert(!taskbar(&other, barstartwidth(&other)));
+	drawbar(&other);
+	monitor.ww = start;
+	assert(!barstatuswidth(&monitor) && !taskbar(&monitor, start));
+	drawbar(&monitor);
+	monitor.ww = 1;
+	assert(barstartwidth(&monitor) == 1 && !barstatuswidth(&monitor));
+	drawbar(&monitor);
+	monitor.ww = 0;
+	assert(!barstartwidth(&monitor) && !taskbar(&monitor, 0));
+	drawbar(&monitor);
+}
+
+static void
+testalttab(void)
+{
+	Arg forward = {.i = 1}, backward = {.i = -1};
+	XEvent event = {0};
+
+	reset();
+	second = first;
+	second.win = 20;
+	first.next = first.snext = &second;
+	second.ishidden = 1;
+	first.focused = 2;
+	second.focused = 1;
+	keyboardgrabfail = 1;
+	alttab(&forward);
+	assert(!switchwin && !switchitems && monitor.sel == &first);
+	keyboardgrabfail = 0;
+	alttab(&forward);
+	assert(switchwin && switchcount == 2 && switchitems[switchindex] == second.win);
+	assert(monitor.sel == &first && second.ishidden);
+	endswitcher(0);
+	assert(monitor.sel == &first && second.ishidden && keyboardungrabs == 1);
+	alttab(&backward);
+	testkey = XK_Alt_L;
+	heldkeys[1] = 2; /* Right Alt remains held. */
+	keyrelease(&event);
+	assert(switchwin);
+	heldkeys[1] = 0;
+	keyrelease(&event);
+	assert(!switchwin && !second.ishidden && monitor.sel == &second);
+	assert(second.x == -900 && second.y == 100);
+	alttab(&forward);
+	testkey = XK_Tab;
+	event.xkey.state = ShiftMask;
+	keypress(&event);
+	assert(switchitems[switchindex] == second.win);
+	testkey = XK_Escape;
+	keypress(&event);
+	assert(!switchwin && monitor.sel == &second);
+
+	reset();
+	other = monitor;
+	other.mx = other.wx = 1;
+	other.num = 1;
+	second = first;
+	second.win = 20;
+	second.mon = &other;
+	second.x = 40;
+	other.sel = other.stack = other.clients = &second;
+	monitor.next = &other;
+	focus(&first);
+	focus(&second);
+	assert(second.focused > first.focused);
+	focus(&first);
+	assert(first.focused > second.focused);
+	second.ishidden = 1;
+	alttab(&forward);
+	assert(switchcount == 2 && switchitems[switchindex] == second.win);
+	assert(!handler[EnterNotify] && selmon == &monitor);
+	endswitcher(1);
+	assert(selmon == &other && other.sel == &second && !second.ishidden);
+	assert(second.x == 40);
+}
+
+static void
+testabove(void)
+{
+	reset();
+	second = first;
+	second.win = 20;
+	first.next = first.snext = &second;
+	savedstates[second.win][0] = 999;
+	statecounts[second.win] = 1;
+	setabove(&second, 1);
+	assert(statecounts[second.win] == 2 && savedstates[second.win][0] == 999);
+	assert(savedstates[second.win][1] == netatom[NetWMAbove]);
+	assert(second.isabove && monitor.sel == &first && raised == second.win);
+	restack(&monitor);
+	assert(raised == second.win);
+	monitor.sel = NULL;
+	restack(&monitor);
+	assert(raised == second.win);
+	monitor.sel = &first;
+	setabove(&second, 0);
+	assert(!second.isabove && raised == first.win);
+	first.isfullscreen = 1;
+	setabove(&second, 1);
+	assert(raised == first.win);
+	second.isdock = 1;
+	setabove(&second, 0);
+	assert(second.isabove);
+}
+
+static void
+testminimize(void)
+{
+	XEvent event = {0};
+
+	reset();
+	wmchangeatom = 400;
+	second = first;
+	second.win = 20;
+	first.next = first.snext = &second;
+	hideclient(&first);
+	assert(first.ishidden && !ISVISIBLE(&first));
+	assert(!traymapped[first.win] && first.ignoreunmaps == 2);
+	assert(monitor.sel == &second && focused == second.win);
+	focus(&first);
+	assert(monitor.sel == &second);
+	event.xclient.window = first.win;
+	event.xclient.message_type = netatom[NetActiveWindow];
+	clientmessage(&event);
+	assert(!first.ishidden && monitor.sel == &first && traymapped[first.win]);
+	assert(first.ignoreunmaps == 2);
+	/* Even if restored before its UnmapNotify events arrive, it stays managed. */
+	event = (XEvent){0};
+	event.xunmap.window = first.win;
+	unmapnotify(&event);
+	unmapnotify(&event);
+	assert(!first.ignoreunmaps && monitor.sel == &first);
+	expectgeom(-900, 100, 601, 401);
+	event.xclient.window = second.win;
+	event.xclient.message_type = wmchangeatom;
+	event.xclient.format = 32;
+	event.xclient.data.l[0] = IconicState;
+	clientmessage(&event);
+	assert(second.ishidden && monitor.sel == &first);
+	event = (XEvent){0};
+	event.xmaprequest.window = second.win;
+	maprequest(&event);
+	assert(!second.ishidden && traymapped[second.win]);
+	first.isdock = 1;
+	hideclient(&first);
+	assert(!first.ishidden);
 }
 
 static void
@@ -620,15 +1027,15 @@ testcrossfocus(void)
 	assert(selmon == &other && other.sel == &third);
 	assert(ungrabs[first.win] && ungrabs[second.win]);
 	assert(ungrabs[third.win] && focused == third.win);
-	event.xcrossing.window = first.win;
-	event.xcrossing.mode = NotifyNormal;
-	event.xcrossing.detail = NotifyNonlinear;
-	enternotify(&event);
+	event.xbutton.window = first.win;
+	event.xbutton.button = Button1;
+	buttonpress(&event);
 	assert(selmon == &monitor && monitor.sel == &first && focused == first.win);
 	second.isdock = 1;
-	event.xcrossing.window = second.win;
-	enternotify(&event);
-	assert(selmon == &other && other.sel == &third && focused == third.win);
+	event.xbutton.window = second.win;
+	buttonpress(&event);
+	assert(selmon == &monitor && monitor.sel == &first && focused == first.win);
+	assert(other.sel == &third);
 	expectgeom(-900, 100, 601, 401);
 }
 
@@ -1023,9 +1430,36 @@ testspawn(void)
 	free(path);
 }
 
+static void
+testtheme(void)
+{
+	char names[2][3][8], previous[2][3][8];
+	char valid[] = "#f7f7f7 #212936 #909090 #f5f5f5 #7e9ebd #7e9ebd";
+
+	assert(themevalues(valid, names));
+	assert(!strcmp(names[0][0], "#f7f7f7"));
+	assert(!strcmp(names[1][2], "#7e9ebd"));
+	memcpy(previous, names, sizeof names);
+	assert(!themevalues("", names));
+	assert(!themevalues("#fff #000", names));
+	valid[9] = 'z';
+	assert(!themevalues(valid, names));
+	assert(!memcmp(names, previous, sizeof names));
+	valid[9] = '2';
+	valid[7] = ';';
+	assert(!themevalues(valid, names));
+}
+
 int
 main(void)
 {
+	reset();
+	grabbuttons(&first, 1);
+	assert(plainclickgrabs == 4);
+	first.isdock = 1;
+	grabbuttons(&first, 1);
+	assert(plainclickgrabs == 4);
+	testtheme();
 	testconfig();
 	testplacement();
 	testmaximize();
@@ -1033,6 +1467,11 @@ main(void)
 	testfullscreen();
 	testclose();
 	testfocus();
+	testtitlebar();
+	testtaskbar();
+	testalttab();
+	testabove();
+	testminimize();
 	testcrossfocus();
 	testmonitors();
 	testdock();
@@ -1042,6 +1481,6 @@ main(void)
 	testtray();
 	testtrayselection();
 	testtraymonitors();
-	puts("PASS: dwm geometry, initial centering, pointer focus, close, spawn and setup history (mock Xlib, ASan/UBSan)");
+	puts("PASS: dwm taskbar, optional titlebars, geometry, click focus, close, spawn and setup history (mock Xlib, ASan/UBSan)");
 	return 0;
 }

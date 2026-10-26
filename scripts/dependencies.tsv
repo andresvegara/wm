@@ -1,8 +1,6 @@
 # kind	name	Arch package	diagnostic path
 command	python3	python	/usr/bin/python3
-command	gio	glib2	/usr/bin/gio
 command	xdg-terminal-exec	xdg-terminal-exec	/usr/bin/xdg-terminal-exec
-pygi	Gio	python-gobject	/usr/lib/python3/site-packages/gi/__init__.py
 command	cc	gcc	/usr/bin/cc
 command	as	binutils	/usr/bin/as
 command	ld	binutils	/usr/bin/ld
@@ -56,6 +54,15 @@ command	systemctl	systemd	/usr/bin/systemctl
 command	loginctl	systemd	/usr/bin/loginctl
 command	gdbus	glib2	/usr/bin/gdbus
 command	dunst	dunst	/usr/bin/dunst
+command	dunstctl	dunst	/usr/bin/dunstctl
+command	busctl	systemd	/usr/bin/busctl
+command	dbus-send	dbus	/usr/bin/dbus-send
+command	rofi	rofi	/usr/bin/rofi
+command	xsettingsd	xsettingsd	/usr/bin/xsettingsd
+command	xfce4-power-manager	xfce4-power-manager	/usr/bin/xfce4-power-manager
+command	xfce4-power-manager-settings	xfce4-power-manager	/usr/bin/xfce4-power-manager-settings
+command	xfconf-query	xfconf	/usr/bin/xfconf-query
+command	timeout	coreutils	/usr/bin/timeout
 command	notify-send	libnotify	/usr/bin/notify-send
 command	picom	picom	/usr/bin/picom
 command	nm-applet	network-manager-applet	/usr/bin/nm-applet
@@ -63,12 +70,14 @@ command	nm-connection-editor	nm-connection-editor	/usr/bin/nm-connection-editor
 command	lxqt-policykit-agent	lxqt-policykit	/usr/bin/lxqt-policykit-agent
 command	autorandr	autorandr	/usr/bin/autorandr
 command	snixembed	snixembed	/usr/bin/snixembed
-command	cbatticon	cbatticon	/usr/bin/cbatticon
-command	pasystray	pasystray	/usr/bin/pasystray
+command	powerprofilesctl	power-profiles-daemon	/usr/bin/powerprofilesctl
 command	xrandr	xorg-xrandr	/usr/bin/xrandr
 command	setxkbmap	xorg-setxkbmap	/usr/bin/setxkbmap
 command	xset	xorg-xset	/usr/bin/xset
 command	xsetroot	xorg-xsetroot	/usr/bin/xsetroot
+# Wallpaper: feh has no GTK dependency; Arch Zenity uses GTK4, never Nitrogen/GTK2.
+command	feh	feh	/usr/bin/feh
+command	zenity	zenity	/usr/bin/zenity
 command	xmessage	xorg-xmessage	/usr/bin/xmessage
 command	xss-lock	xss-lock	/usr/bin/xss-lock
 command	i3lock	i3lock	/usr/bin/i3lock
@@ -93,18 +102,19 @@ pc	fontconfig	fontconfig	fontconfig.pc
 pc	freetype2	freetype2	freetype2.pc
 font	Hack Nerd Font Mono	ttf-hack-nerd	/usr/share/fonts/TTF/HackNerdFontMono-Regular.ttf
 font	Noto Color Emoji	noto-fonts-emoji	/usr/share/fonts/noto/NotoColorEmoji.ttf
-# Explicit Awesome selection; these entries do not affect the legacy installer.
+# Awesome requirements: default (both sessions) and --awesome.
 # awesome: https://archlinux.org/packages/extra/x86_64/awesome/
 # No unit activation or mandatory PPD/audio server; widget backend reports absence.
+awesome-command	alacritty	alacritty	/usr/bin/alacritty
+awesome-command	xdg-terminal-exec	xdg-terminal-exec	/usr/bin/xdg-terminal-exec
 awesome-command	awesome	awesome	/usr/bin/awesome
 awesome-command	awesome-client	awesome	/usr/bin/awesome-client
+awesome-command	xrandr	xorg-xrandr	/usr/bin/xrandr
+awesome-command	autorandr	autorandr	/usr/bin/autorandr
 awesome-command	python3	python	/usr/bin/python3
-awesome-pygi	Gio	python-gobject	/usr/lib/python3/site-packages/gi/__init__.py
 awesome-command	cc	gcc	/usr/bin/cc
 awesome-command	pkg-config	pkgconf	/usr/bin/pkg-config
 awesome-pc	x11	libx11	x11.pc
-awesome-pc	xft	libxft	xft.pc
-awesome-pc	xinerama	libxinerama	xinerama.pc
 awesome-command	as	binutils	/usr/bin/as
 awesome-command	ld	binutils	/usr/bin/ld
 awesome-command	make	make	/usr/bin/make
@@ -120,15 +130,13 @@ awesome-command	mktemp	coreutils	/usr/bin/mktemp
 awesome-command	rm	coreutils	/usr/bin/rm
 awesome-command	find	findutils	/usr/bin/find
 awesome-command	timeout	coreutils	/usr/bin/timeout
-awesome-command	busctl	systemd	/usr/bin/busctl
+awesome-command	dbus-send	dbus	/usr/bin/dbus-send
 awesome-command	gdbus	glib2	/usr/bin/gdbus
 awesome-command	systemctl	systemd	/usr/bin/systemctl
 awesome-command	pgrep	procps-ng	/usr/bin/pgrep
 awesome-command	wmctrl	wmctrl	/usr/bin/wmctrl
-awesome-command	xsetroot	xorg-xsetroot	/usr/bin/xsetroot
 awesome-command	xset	xorg-xset	/usr/bin/xset
 awesome-command	setxkbmap	xorg-setxkbmap	/usr/bin/setxkbmap
-awesome-command	dunst	dunst	/usr/bin/dunst
 awesome-command	notify-send	libnotify	/usr/bin/notify-send
 awesome-command	xmessage	xorg-xmessage	/usr/bin/xmessage
 awesome-command	nm-applet	network-manager-applet	/usr/bin/nm-applet
@@ -140,8 +148,6 @@ awesome-command	xss-lock	xss-lock	/usr/bin/xss-lock
 awesome-command	i3lock	i3lock	/usr/bin/i3lock
 awesome-command	gnome-keyring-daemon	gnome-keyring	/usr/bin/gnome-keyring-daemon
 awesome-command	seahorse	seahorse	/usr/bin/seahorse
-awesome-command	alacritty	alacritty	/usr/bin/alacritty
-awesome-command	jumpapp	jumpapp	/usr/bin/jumpapp
 awesome-command	brave	brave-bin	/usr/bin/brave
 awesome-command	chromium	chromium	/usr/bin/chromium
 awesome-command	thunar	thunar	/usr/bin/thunar
@@ -158,3 +164,11 @@ awesome-userunit	gnome-keyring-daemon.socket	gnome-keyring	/usr/lib/systemd/user
 awesome-userunit	gnome-keyring-daemon.service	gnome-keyring	/usr/lib/systemd/user/gnome-keyring-daemon.service
 awesome-userunit	gcr-ssh-agent.socket	gcr-4	/usr/lib/systemd/user/gcr-ssh-agent.socket
 awesome-userunit	gcr-ssh-agent.service	gcr-4	/usr/lib/systemd/user/gcr-ssh-agent.service
+awesome-command	picom	picom	/usr/bin/picom
+awesome-command	xsettingsd	xsettingsd	/usr/bin/xsettingsd
+awesome-resource	Menta	mate-themes	/usr/share/themes/Menta/gtk-3.0/gtk.css
+awesome-resource	menta	mate-icon-theme	/usr/share/icons/menta/index.theme
+awesome-command	kill	util-linux	/usr/bin/kill
+awesome-command	sed	sed	/usr/bin/sed
+awesome-command	mv	coreutils	/usr/bin/mv
+awesome-command	xprintidle	xprintidle	/usr/bin/xprintidle

@@ -9,6 +9,7 @@ dest=$work/destination
 mkdir -p "$fixture/scripts" "$fixture/session" "$fixture/awesome/config" \
     "$fixture/awesome/widgets" "$bin" "$work/build" "$HOME/.config/awesome"
 cp "$root/scripts/install.sh" "$root/scripts/dependencies.tsv" "$fixture/scripts/"
+[ -z "$(awk '$1 == "awesome-command" && $2 == "jumpapp" { print }' "$fixture/scripts/dependencies.tsv")" ] || exit 1
 tab=$(printf '\t')
 while IFS="$tab" read -r kind name package path; do
 	[ "$kind" = awesome-command ] || continue
@@ -20,7 +21,7 @@ for tool in sh find install stat cmp mkdir mktemp rm chmod tar cp; do
 done
 printf '#!/bin/sh\nprintf "1000\\n"\n' > "$bin/id"
 chmod 755 "$bin/id"
-for tool in sudo systemctl paru awesome picom dwmblocks; do
+for tool in sudo systemctl paru awesome picom dwmblocks alacritty xdg-terminal-exec; do
 	printf '#!/bin/sh\nprintf "FORBIDDEN %%s\\n" "$0" >> "$FORBIDDEN_LOG"\nexit 99\n' > "$bin/$tool"
 	chmod 755 "$bin/$tool"
 done
@@ -28,34 +29,39 @@ export FORBIDDEN_LOG=$work/forbidden
 export WM_OS_RELEASE=$work/os-release WM_RESOURCE_ROOT=$work/resources
 mkdir -p "$WM_RESOURCE_ROOT/usr/lib/systemd/user"
 while IFS="$tab" read -r kind name package path; do
-	[ "$kind" = awesome-userunit ] || continue
-	printf 'synthetic\n' > "$WM_RESOURCE_ROOT/usr/lib/systemd/user/$name"
+	case "$kind" in
+	awesome-userunit) printf 'synthetic\n' > "$WM_RESOURCE_ROOT/usr/lib/systemd/user/$name" ;;
+	awesome-resource)
+		mkdir -p "$WM_RESOURCE_ROOT${path%/*}"
+		printf 'synthetic\n' > "$WM_RESOURCE_ROOT$path"
+		;;
+	esac
 done < "$fixture/scripts/dependencies.tsv"
 printf 'ID=synthetic\n' > "$WM_OS_RELEASE"
-printf '#!/bin/sh\n[ "${MOCK_GI_FAIL-0}" = 0 ]\n' > "$bin/python3"
+printf '#!/bin/sh\n[ "$1" = -c ] && [ "$2" = "import sys; assert sys.version_info >= (3, 9)" ] && [ "${MOCK_PYTHON_FAIL-0}" = 0 ]\n' > "$bin/python3"
 printf '#!/bin/sh\ncase "$1" in --exists) [ "${MOCK_PC_FAIL-0}" = 0 ] ;; --variable=pc_path) printf "/synthetic/pkgconfig\\n" ;; esac\n' > "$bin/pkg-config"
 printf '#!/bin/sh\n[ "${MOCK_CC_FAIL-0}" = 0 ] || exit 42\nwhile [ "$1" != -o ]; do shift; done\nprintf "synthetic helper\\n" > "$2"\n' > "$bin/cc"
 printf '#!/bin/sh\n[ "$1" = -C ] && [ "$3" = ls-files ] || exit 99\nwhile IFS= read -r file; do printf "%%s\\n" "$file"; done < "$2/tracked"\n' > "$bin/git"
 printf '#!/bin/sh\n[ "$1" = -C ] || exit 99\ncase "$3" in clean) exit 0 ;; CC=cc) ;; *) exit 99 ;; esac\n[ "${MOCK_MAKE_FAIL-0}" = 0 ] || exit 42\nfor file in dmenu stest; do printf "synthetic binary\\n" > "$2/$file"; done\n' > "$bin/make"
 chmod 755 "$bin/python3" "$bin/pkg-config" "$bin/cc" "$bin/git" "$bin/make"
-mkdir -p "$fixture/dmenu/.git"
-printf '%s\n' Makefile config.def.h dmenu_path dmenu_run > "$fixture/dmenu/tracked"
-for file in Makefile config.def.h dmenu_path dmenu_run; do
-	printf 'synthetic dmenu source\n' > "$fixture/dmenu/$file"
-done
 for helper in wm-close wm-monitor; do
 	printf '/* synthetic helper source, not compiled */\n' > "$fixture/awesome/$helper.c"
 done
-for file in awesome/rc.lua awesome/config/keys.lua awesome/widgets/init.lua awesome/widgets/backend.py; do
-	printf '%s\n' '-- synthetic Lua payload, not executed' > "$fixture/$file"
-done
-for file in awesome-session awesome.desktop dunstrc; do
+cp "$root/awesome/rc.lua" "$fixture/awesome/"
+cp -R "$root/awesome/config/." "$fixture/awesome/config/"
+cp -R "$root/awesome/widgets/." "$fixture/awesome/widgets/"
+cp "$root/scripts/wm_session.py" "$fixture/scripts/"
+printf 'synthetic obsolete worker\n' > "$fixture/awesome/widgets/backend.py"
+for file in awesome-session awesome.desktop awesome-picom.conf; do
 	printf 'synthetic %s\n' "$file" > "$fixture/session/$file"
 done
-for file in awesome-supervisor wm-command wm-launcher wm-run wm-control; do
+cp "$root/session/awesome-xdg-terminals.list" "$fixture/session/"
+for file in awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays; do
 	printf '#!/bin/sh\nexit 99 # synthetic, never executed\n' > "$fixture/scripts/$file"
 done
 printf 'personal config\n' > "$HOME/.config/awesome/rc.lua"
+mkdir -p "$HOME/.config/alacritty"
+printf 'personal Alacritty settings\n' > "$HOME/.config/alacritty/alacritty.toml"
 mkdir -p "$dest/usr/share/xsessions" "$dest/usr/local/share/xsessions"
 printf 'dwm session\n' > "$dest/usr/share/xsessions/wm.desktop"
 printf 'Plasma session\n' > "$dest/usr/local/share/xsessions/plasma.desktop"
@@ -72,31 +78,52 @@ run()
 }
 reject()
 {
-	if run; then fail 'expected failure'; fi
+	rejections=$((${rejections-0} + 1))
+	if run; then fail "expected failure at rejection $rejections ($name)"; fi
 	[ -z "$(find "$work/build" -mindepth 1 -print)" ] || fail 'leaked staging'
 }
 check()
 {
 	[ ! -e "$FORBIDDEN_LOG" ] || fail 'host command attempted'
 	grep -qx 'personal config' "$HOME/.config/awesome/rc.lua" || fail 'personal rc changed'
+	grep -qx 'personal Alacritty settings' "$HOME/.config/alacritty/alacritty.toml" || fail 'personal terminal settings changed'
 	grep -qx 'dwm session' "$dest/usr/share/xsessions/wm.desktop" || fail 'dwm changed'
 	grep -qx 'Plasma session' "$dest/usr/local/share/xsessions/plasma.desktop" || fail 'Plasma changed'
+	if [ -f "$dest/usr/local/share/wm/dunstrc" ]; then
+		grep -qx 'existing dwm config' "$dest/usr/local/share/wm/dunstrc" || fail 'legacy Dunst changed'
+	fi
 	[ -z "$(find "$work/build" -mindepth 1 -print)" ] || fail 'leaked staging'
 }
 run || { /usr/bin/tail -30 "$work/output"; fail 'initial staging'; }
 check
-for file in rc.lua config/keys.lua widgets/init.lua widgets/backend.py; do
+for file in rc.lua config/keys.lua config/session.lua config/displays.lua config/themes.json config/preferences.lua config/terminal.lua config/power-options.lua widgets/notifications.lua widgets/init.lua; do
 	cmp "$fixture/awesome/$file" "$dest/usr/local/share/wm/awesome/$file"
 	[ "$(stat -c %a "$dest/usr/local/share/wm/awesome/$file")" = 644 ] || fail 'Lua mode'
 done
-for file in awesome-session awesome-supervisor wm-command wm-launcher wm-run wm-control wm-close wm-monitor dmenu dmenu_path dmenu_run stest; do
+for file in awesome-session awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays wm-close; do
 	[ "$(stat -c %a "$dest/usr/local/bin/$file")" = 755 ] || fail 'executable mode'
 done
 cmp "$fixture/session/awesome.desktop" "$dest/usr/local/share/xsessions/awesome.desktop"
 [ "$(stat -c %a "$dest/usr/local/share/xsessions/awesome.desktop")" = 644 ] || fail 'desktop mode'
-[ ! -e "$dest/usr/local/share/wm/picom.conf" ] || fail 'picom installed'
+cmp "$fixture/session/awesome-picom.conf" "$dest/usr/local/share/wm/awesome-picom.conf"
+[ ! -e "$dest/usr/local/share/wm/picom.conf" ] || fail 'legacy picom config installed'
+[ ! -e "$dest/usr/local/share/wm/dunstrc" ] || fail 'Dunst config installed'
+[ ! -e "$dest/usr/local/share/wm/awesome/widgets/backend.py" ] || fail 'obsolete worker installed'
+cmp "$root/scripts/wm_session.py" "$dest/usr/local/bin/wm_session.py" || fail 'shared module missing'
+cmp "$root/awesome/config/themes.json" "$dest/usr/local/share/wm/themes.json" || fail 'shared themes missing'
+for tool in dunst xsetroot rofi xfce4-power-manager; do
+	[ ! -e "$bin/$tool" ] || fail "exclusive dependency present: $tool"
+done
+printf 'existing dwm config\n' > "$dest/usr/local/share/wm/dunstrc"
 [ ! -e "$dest/usr/local/bin/dwmblocks" ] || fail 'dwmblocks installed'
 [ ! -e "$dest/usr/local/share/man" ] || fail 'manuals installed'
+for file in st dmenu wm-monitor; do
+	[ ! -e "$dest/usr/local/bin/$file" ] || fail "obsolete Awesome build: $file"
+done
+[ ! -e "$fixture/st" ] && [ ! -e "$fixture/dmenu" ] || fail 'source checkout must not be needed'
+[ ! -e "$dest/usr/local/share/terminfo" ] || fail 'st terminfo installed'
+[ ! -e "$dest/usr/local/share/applications/awesome-st.desktop" ] || fail 'obsolete st desktop installed'
+grep -qx 'Alacritty.desktop' "$dest/usr/local/share/xdg-terminal-exec/awesome-xdg-terminals.list" || fail 'default terminal' 
 find "$dest" -type f -exec /usr/bin/stat -c '%n %i %Y %a' '{}' \; > "$work/before"
 run || fail 'repeat staging'
 grep -q '0 archivos Awesome actualizados' "$work/output" || fail 'not idempotent'
@@ -109,6 +136,8 @@ run || fail 'mode repair'
 # Every selected executable is checked before staging, without package actions.
 while IFS="$tab" read -r kind name package path; do
 	[ "$kind" = awesome-command ] || continue
+	# Removing a PATH stub cannot remove the shell's kill builtin.
+	[ "$name" != kill ] || continue
 	mv "$bin/$name" "$work/held-command"
 	reject
 	grep -Fq "$path" "$work/output" || fail "unchecked dependency: $name"
@@ -121,9 +150,11 @@ while IFS="$tab" read -r kind name package path; do
 	grep -Fq "$path" "$work/output" || fail "unchecked user unit: $name"
 	mv "$work/held-unit" "$WM_RESOURCE_ROOT/usr/lib/systemd/user/$name"
 done < "$fixture/scripts/dependencies.tsv"
-MOCK_GI_FAIL=1; export MOCK_GI_FAIL
+# Python version is checked, but the shim rejects imports of retired GI workers.
+MOCK_PYTHON_FAIL=1; export MOCK_PYTHON_FAIL
 reject
-unset MOCK_GI_FAIL
+unset MOCK_PYTHON_FAIL
+[ -z "$(grep 'python-gobject' "$fixture/scripts/dependencies.tsv")" ] || fail 'obsolete Python GIO dependency'
 MOCK_PC_FAIL=1; export MOCK_PC_FAIL
 reject
 unset MOCK_PC_FAIL
@@ -131,7 +162,7 @@ MOCK_CC_FAIL=1; export MOCK_CC_FAIL
 reject
 unset MOCK_CC_FAIL
 MOCK_MAKE_FAIL=1; export MOCK_MAKE_FAIL
-reject
+run || fail 'Awesome must not build a terminal or dmenu'
 unset MOCK_MAKE_FAIL
 
 # Missing source or special files must fail before changing any destination.
@@ -168,11 +199,8 @@ check
 for tool in cc as ld make pkg-config; do
 	ln -sf "/usr/bin/$tool" "$bin/$tool"
 done
-git -C "$root/dmenu" ls-files > "$fixture/dmenu/tracked"
-tar -cf "$work/dmenu-source.tar" -C "$root/dmenu" -T "$fixture/dmenu/tracked"
-tar -xf "$work/dmenu-source.tar" -C "$fixture/dmenu"
 cp "$root/awesome/wm-close.c" "$root/awesome/wm-monitor.c" "$fixture/awesome/"
-run || { /usr/bin/tail -40 "$work/output"; fail 'real dmenu/helper build'; }
+run || { /usr/bin/tail -40 "$work/output"; fail 'real helper build'; }
 run || fail 'repeat real build'
 grep -q '0 archivos Awesome actualizados' "$work/output" || fail 'real builds not idempotent'
 check
@@ -181,12 +209,12 @@ check
 cp "$root/awesome/rc.lua" "$fixture/awesome/rc.lua"
 cp -R "$root/awesome/config/." "$fixture/awesome/config/"
 cp -R "$root/awesome/widgets/." "$fixture/awesome/widgets/"
-cp "$root/session/awesome-session" "$root/session/awesome.desktop" "$root/session/dunstrc" "$fixture/session/"
-for file in awesome-supervisor wm-command wm-launcher wm-run wm-control; do
+cp "$root/session/awesome-session" "$root/session/awesome.desktop" "$root/session/awesome-picom.conf" "$root/session/awesome-xdg-terminals.list" "$fixture/session/"
+for file in awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays; do
 	cp "$root/scripts/$file" "$fixture/scripts/$file"
 done
 run || fail 'delivered payload staging'
-for file in rc.lua widgets/init.lua widgets/backend.py config/keys.lua config/rules.lua config/layout.lua; do
+for file in rc.lua widgets/init.lua widgets/tasks.lua widgets/notifications.lua config/session.lua config/displays.lua config/switcher.lua config/apps.lua config/keys.lua config/rules.lua config/layout.lua config/preferences.lua config/terminal.lua config/themes.json; do
 	cmp "$root/awesome/$file" "$dest/usr/local/share/wm/awesome/$file"
 done
 grep -qx 'Exec=/usr/local/bin/awesome-session' "$dest/usr/local/share/xsessions/awesome.desktop"
@@ -208,6 +236,24 @@ chmod 755 "$bin/stat"
 INSTALL_DEST=; export INSTALL_DEST
 run || fail 'simulated privileged copies'
 check
+# Arch dependency resolution uses only a mock package manager and restores PATH.
+printf 'ID=arch\n' > "$WM_OS_RELEASE"
+mv "$bin/awesome" "$work/held-awesome"
+mv "$bin/paru" "$work/held-paru"
+export MOCK_PACKAGE_SOURCE=$work/held-awesome MOCK_PACKAGE_TARGET=$bin/awesome
+export MOCK_PACKAGE_LOG=$work/packages
+printf '#!/bin/sh\n[ "$*" = "-S --needed awesome" ] || exit 98\nprintf "%%s\\n" "$*" >> "$MOCK_PACKAGE_LOG"\ncp "$MOCK_PACKAGE_SOURCE" "$MOCK_PACKAGE_TARGET"\n' > "$bin/paru"
+chmod 755 "$bin/paru"
+run || fail 'Arch dependency installation and recheck'
+grep -qx -- '-S --needed awesome' "$MOCK_PACKAGE_LOG" || fail 'package arguments'
+check
+rm "$bin/awesome"
+printf '#!/bin/sh\nexit 42\n' > "$bin/paru"
+reject
+grep -q 'paru falló' "$work/output" || fail 'package failure ignored'
+cp "$work/held-awesome" "$bin/awesome"
+mv "$work/held-paru" "$bin/paru"
+printf 'ID=synthetic\n' > "$WM_OS_RELEASE"
 mv "$bin/sudo" "$work/held-sudo"
 reject
 grep -q /usr/bin/sudo "$work/output" || fail 'missing sudo not diagnosed'

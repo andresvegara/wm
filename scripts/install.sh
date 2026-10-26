@@ -21,7 +21,7 @@ case "$dest" in
 esac
 command -v id >/dev/null 2>&1 || fail 'falta binario: /usr/bin/id'
 [ "$(id -u)" != 0 ] || fail 'ejecuta como usuario normal, sin sudo; se pedirán permisos al copiar'
-session=dwm
+session=all
 case "$*" in
 '') ;;
 --awesome) [ "$#" = 1 ] || fail 'argumentos inválidos'; session=awesome ;;
@@ -65,62 +65,43 @@ publish()
 	done < "$tmp/install.files"
 }
 
-install_awesome()
+stage_awesome()
 {
-	check_dependencies
-	[ -z "$packages" ] || fail 'dependencias Awesome ausentes; no se modificó el sistema'
 	# Own configuration only: never discover or overwrite a user's rc.lua.
-	for file in awesome/rc.lua awesome/wm-close.c awesome/wm-monitor.c session/awesome-session session/awesome.desktop scripts/awesome-supervisor; do
+	for file in scripts/wm_session.py awesome/config/preferences.lua awesome/config/terminal.lua awesome/config/power-options.lua awesome/config/themes.json awesome/config/copyq.lua awesome/config/log.lua awesome/config/icons.lua awesome/config/power.lua awesome/config/power-settings.lua awesome/config/power-dbus.lua awesome/config/power-state.lua awesome/config/power-policy.lua awesome/rc.lua awesome/config/session.lua awesome/config/apps.lua awesome/config/applications.lua awesome/config/appearance.lua awesome/config/themes.lua awesome/config/titlebars.lua awesome/widgets/panel.lua awesome/widgets/notifications.lua awesome/wm-close.c awesome/config/picker.lua awesome/config/launcher.lua awesome/config/json.lua session/awesome-session session/awesome.desktop session/awesome-picom.conf session/awesome-xdg-terminals.list scripts/awesome-supervisor; do
 		[ -f "$root/$file" ] && [ ! -L "$root/$file" ] || fail "falta archivo regular: $file"
 	done
 	[ -n "$dest" ] || command -v sudo >/dev/null 2>&1 || fail 'falta binario: /usr/bin/sudo'
-	tmp=$(mktemp -d)
-	trap 'rm -rf -- "$tmp"' EXIT
-	trap 'exit 1' HUP INT TERM
-	stage=$tmp/stage
 	mkdir -p "$stage/usr/local/bin"
 	for dir in config widgets; do
 		[ -d "$root/awesome/$dir" ] && [ ! -L "$root/awesome/$dir" ] || fail "falta directorio regular: awesome/$dir"
 		find "$root/awesome/$dir" -mindepth 1 ! -type d ! -type f > "$tmp/special"
 		[ ! -s "$tmp/special" ] || fail "archivo especial en awesome/$dir"
-		find "$root/awesome/$dir" -type f \( -name '*.lua' -o -name '*.py' \) > "$tmp/lua.files"
+		find "$root/awesome/$dir" -type f -name '*.lua' > "$tmp/lua.files"
 		[ -s "$tmp/lua.files" ] || fail "sin módulos Lua: awesome/$dir"
 		while IFS= read -r file; do
 			install -D -m 644 "$file" "$stage/usr/local/share/wm/${file#"$root/"}"
 		done < "$tmp/lua.files"
 	done
-	# Build only the local patched dmenu; no bootstrap, dwm or terminal build.
-	[ -d "$root/dmenu/.git" ] || [ -f "$root/dmenu/.git" ] || fail 'falta checkout local: dmenu'
-	mkdir "$tmp/dmenu"
-	git -C "$root/dmenu" ls-files > "$tmp/dmenu.files"
-	tar -cf "$tmp/dmenu.tar" -C "$root/dmenu" -T "$tmp/dmenu.files"
-	tar -xf "$tmp/dmenu.tar" -C "$tmp/dmenu"
-	(
-		unset MAKEFLAGS MFLAGS
-		make -C "$tmp/dmenu" clean
-		rm -f "$tmp/dmenu/config.h"
-		make -C "$tmp/dmenu" CC=cc PREFIX=/usr/local all
-	)
-	for binary in dmenu dmenu_path dmenu_run stest; do
-		install -m 755 "$tmp/dmenu/$binary" "$stage/usr/local/bin/$binary"
-	done
-	for helper in wm-close wm-monitor; do
-		cc -std=c99 -pedantic -Wall -Wextra $(pkg-config --cflags x11 xinerama) \
-		    "$root/awesome/$helper.c" -o "$stage/usr/local/bin/$helper" $(pkg-config --libs x11 xinerama)
+	install -D -m 644 "$root/awesome/config/themes.json" "$stage/usr/local/share/wm/awesome/config/themes.json"
+	install -D -m 644 "$root/awesome/config/themes.json" "$stage/usr/local/share/wm/themes.json"
+	install -m 644 "$root/scripts/wm_session.py" "$stage/usr/local/bin/wm_session.py"
+	# Alacritty and its desktop entry are supplied by the system package.
+	install -D -m 644 "$root/session/awesome-xdg-terminals.list" "$stage/usr/local/share/xdg-terminal-exec/awesome-xdg-terminals.list"
+	for helper in wm-close; do
+		cc -std=c99 -pedantic -Wall -Wextra $(pkg-config --cflags x11) \
+		    "$root/awesome/$helper.c" -o "$stage/usr/local/bin/$helper" $(pkg-config --libs x11)
 		chmod 755 "$stage/usr/local/bin/$helper"
 	done
+	install -D -m 644 "$root/session/awesome-picom.conf" "$stage/usr/local/share/wm/awesome-picom.conf"
 	install -D -m 644 "$root/awesome/rc.lua" "$stage/usr/local/share/wm/awesome/rc.lua"
 	install -m 755 "$root/session/awesome-session" "$stage/usr/local/bin/awesome-session"
 	install -m 755 "$root/scripts/awesome-supervisor" "$stage/usr/local/bin/awesome-supervisor"
-	for helper in wm-command wm-launcher wm-run wm-control; do
+	for helper in wm-command wm-launcher wm-run wm-control wm-displays; do
 		[ -f "$root/scripts/$helper" ] && [ ! -L "$root/scripts/$helper" ] || fail "falta helper regular: $helper"
 		install -m 755 "$root/scripts/$helper" "$stage/usr/local/bin/$helper"
 	done
-	install -D -m 644 "$root/session/dunstrc" "$stage/usr/local/share/wm/dunstrc"
 	install -D -m 644 "$root/session/awesome.desktop" "$stage/usr/local/share/xsessions/awesome.desktop"
-	publish
-	printf 'install: %s archivos Awesome actualizados; no se ha habilitado ni iniciado ningún servicio ni sesión\n' "$changed"
-	exit 0
 }
 
 arch=no
@@ -148,18 +129,17 @@ check_dependencies()
 	while IFS="$tab" read -r kind name package path; do
 		case "$session:$kind" in
 		awesome:awesome-*) kind=${kind#awesome-} ;;
-		awesome:*|dwm:awesome-*) continue ;;
+		all:awesome-*) kind=${kind#awesome-} ;;
+		awesome:*) continue ;;
 		esac
 		case "$kind" in
 		''|\#*) continue ;;
 		command)
 			command -v "$name" >/dev/null 2>&1 ||
 			    missing binario "$path (buscado en PATH=$PATH)"
-			;;
-		pygi)
-			if ! command -v python3 >/dev/null 2>&1 ||
-			    ! python3 -c 'import sys; assert sys.version_info >= (3, 9); import gi; gi.require_version("Gio", "2.0"); from gi.repository import Gio' 2>/dev/null; then
-				missing módulo "$path (requiere /usr/bin/python3 >= 3.9 y GIO)"
+			if [ "$name" = python3 ] && command -v python3 >/dev/null 2>&1 &&
+			    ! python3 -c 'import sys; assert sys.version_info >= (3, 9)' 2>/dev/null; then
+				missing binario "$path (requiere Python >= 3.9)"
 			fi
 			;;
 		userunit)
@@ -190,6 +170,9 @@ check_dependencies()
 				[ -n "${paths#:}" ] || missing recurso "/usr/lib/pkgconfig/$path"
 			fi
 			;;
+		resource)
+			[ -f "${WM_RESOURCE_ROOT-}$path" ] || missing recurso "$path"
+			;;
 		font)
 			family=
 			if command -v fc-match >/dev/null 2>&1; then
@@ -205,14 +188,32 @@ check_dependencies()
 	done < "$root/scripts/dependencies.tsv"
 }
 
-[ "$session" != awesome ] || install_awesome
+if [ "$session" = awesome ]; then
+	check_dependencies
+	if [ -n "$packages" ]; then
+		[ -z "$dest" ] || fail 'dependencias Awesome ausentes; DESTDIR no modifica paquetes del sistema'
+		[ "$arch" = yes ] || fail 'dependencias Awesome ausentes; no se modificó el sistema'
+		command -v paru >/dev/null 2>&1 || fail "falta binario: /usr/bin/paru (buscado en PATH=$PATH)"
+		paru -S --needed $packages || fail 'paru falló; instalación cancelada'
+		check_dependencies
+		[ -z "$packages" ] || fail 'siguen faltando dependencias después de paru'
+	fi
+	tmp=$(mktemp -d)
+	trap 'rm -rf -- "$tmp"' EXIT
+	trap 'exit 1' HUP INT TERM
+	stage=$tmp/stage
+	stage_awesome
+	publish
+	printf 'install: %s archivos Awesome actualizados; no se ha habilitado ni iniciado ningún servicio ni sesión\n' "$changed"
+	exit 0
+fi
 
 # Validate the whole inventory before changing dependencies or fetching anything.
 seen=' '
 tab=$(printf '\t')
 while IFS="$tab" read -r project url revision extra; do
 	case "$project" in
-	dwm|dmenu|st) ;;
+	dwm|dmenu|st|dwmblocks) ;;
 	*) fail "proyecto desconocido en checkouts.tsv: $project" ;;
 	esac
 	case "$seen" in
@@ -225,8 +226,12 @@ while IFS="$tab" read -r project url revision extra; do
 	esac
 	[ "${#revision}" = 40 ] || fail "revisión incompleta: $project"
 	[ -n "$url" ] || fail "falta URL: $project"
+	if [ "$url" = - ]; then
+		[ "$project" = dwmblocks ] || fail "destino pendiente no permitido: $project"
+		[ -e "$root/$project" ] || fail "falta checkout dwmblocks; destino remoto pendiente de asignar"
+	fi
 done < "$root/checkouts.tsv"
-for project in dwm dmenu st; do
+for project in dwm dmenu st dwmblocks; do
 	case "$seen" in
 	*" $project "*) ;;
 	*) fail "falta proyecto en checkouts.tsv: $project" ;;
@@ -285,13 +290,11 @@ while read -r unit rest; do
 	*) fail "servicio competidor activo: $unit ($active)" ;;
 	esac
 done < "$tmp/units"
-enable_units=
 for unit in sddm.service NetworkManager.service; do
 	state=$(systemctl --system is-enabled "$unit" 2>/dev/null) || :
 	case "$state" in
-	enabled) ;;
-	disabled|enabled-runtime) enable_units="$enable_units $unit" ;;
-	*) fail "no se puede habilitar $unit: $state" ;;
+	enabled|disabled|enabled-runtime) ;;
+	*) fail "estado no utilizable de $unit: $state" ;;
 	esac
 done
 # Fetch into a sibling temporary directory, then publish only a verified tree.
@@ -301,7 +304,7 @@ trap 'rm -rf -- "$tmp"; [ -z "$bootstrap" ] || rm -rf -- "$bootstrap"' EXIT
 tab=$(printf '\t')
 while IFS="$tab" read -r project url revision; do
 	case "$project" in
-	dwm|dmenu|st) ;;
+	dwm|dmenu|st|dwmblocks) ;;
 	*) fail "proyecto desconocido en checkouts.tsv: $project" ;;
 	esac
 	[ ! -e "$root/$project" ] && [ ! -L "$root/$project" ] || continue
@@ -325,8 +328,8 @@ while IFS="$tab" read -r project url revision; do
 	bootstrap=
 done < "$root/checkouts.tsv"
 stage=$tmp/stage
-mkdir -p "$stage/usr/local/bin" "$stage/usr/local/share/man/man1"
-for project in dwm dmenu st; do
+mkdir -p "$stage/usr/local/bin"
+for project in dwm dmenu st dwmblocks; do
 	mkdir "$tmp/$project"
 	git -C "$root/$project" ls-files > "$tmp/files"
 	tar -cf "$tmp/source.tar" -C "$root/$project" -T "$tmp/files"
@@ -334,42 +337,49 @@ for project in dwm dmenu st; do
 	(
 		unset MAKEFLAGS MFLAGS
 		make -C "$tmp/$project" clean
-		rm -f "$tmp/$project/config.h"
+		if [ -f "$tmp/$project/config.def.h" ]; then
+			rm -f "$tmp/$project/config.h"
+		fi
 		make -C "$tmp/$project" CC=cc PREFIX=/usr/local all
 	)
 	case "$project" in
-	dwm) binaries=dwm; manuals=dwm ;;
-	dmenu) binaries='dmenu dmenu_path dmenu_run stest'; manuals='dmenu stest' ;;
-	st) binaries=st; manuals=st ;;
+	dwm) binaries=dwm ;;
+	dmenu) binaries='dmenu dmenu_path dmenu_run stest' ;;
+	st) binaries=st ;;
+	dwmblocks) binaries='dwmblocks wm-keyboard' ;;
 	esac
 	for binary in $binaries; do
 		install -m 755 "$tmp/$project/$binary" "$stage/usr/local/bin/$binary"
 	done
-	version=$(sed -n 's/^VERSION *= *//p' "$tmp/$project/config.mk")
-	[ -n "$version" ] || fail "falta VERSION: $tmp/$project/config.mk"
-	for manual in $manuals; do
-		sed "s/VERSION/$version/g" "$tmp/$project/$manual.1" > "$stage/usr/local/share/man/man1/$manual.1"
-	done
 done
+[ -f "$root/scripts/wm-randr-watch.c" ] && [ ! -L "$root/scripts/wm-randr-watch.c" ] || fail 'falta helper RandR regular'
+cc -std=c99 -pedantic -Wall -Wextra $(pkg-config --cflags x11 xrandr) \
+    "$root/scripts/wm-randr-watch.c" -o "$stage/usr/local/bin/wm-randr-watch" $(pkg-config --libs x11 xrandr)
+chmod 755 "$stage/usr/local/bin/wm-randr-watch"
 install -m 755 "$root/session/wm-session" "$stage/usr/local/bin/wm-session"
 install -m 755 "$root/scripts/wm-supervisor" "$stage/usr/local/bin/wm-supervisor"
-for config in picom.conf dunstrc pulse-client.conf; do
+for config in picom.conf dunstrc rofi.rasi; do
 	install -D -m 644 "$root/session/$config" "$stage/usr/local/share/wm/$config"
 done
+if [ -e "$root/wallpaper.png" ] || [ -L "$root/wallpaper.png" ]; then
+	[ -f "$root/wallpaper.png" ] && [ ! -L "$root/wallpaper.png" ] || fail 'wallpaper.png debe ser regular'
+	install -D -m 644 "$root/wallpaper.png" "$stage/usr/local/share/wm/wallpaper.png"
+fi
 install -m 755 "$root/scripts/wm-launcher" "$stage/usr/local/bin/wm-launcher"
 install -m 755 "$root/scripts/wm-run" "$stage/usr/local/bin/wm-run"
 install -m 755 "$root/scripts/wm-control" "$stage/usr/local/bin/wm-control"
+install -m 755 "$root/scripts/wm-status" "$stage/usr/local/bin/wm-status"
+for helper in wm-appearance wm-notifications wm-lock wm-wallpaper; do
+	[ -f "$root/scripts/$helper" ] && [ ! -L "$root/scripts/$helper" ] || fail "falta helper regular: $helper"
+	install -m 755 "$root/scripts/$helper" "$stage/usr/local/bin/$helper"
+done
+install -m 755 "$root/scripts/wm-command" "$stage/usr/local/bin/wm-command"
 install -m 755 "$root/scripts/wm-displays" "$stage/usr/local/bin/wm-displays"
 install -D -m 644 "$root/session/wm.desktop" "$stage/usr/share/xsessions/wm.desktop"
 install -D -m 644 "$root/session/wm-st.desktop" "$stage/usr/local/share/applications/wm-st.desktop"
 install -D -m 644 "$root/session/dwm-xdg-terminals.list" "$stage/usr/local/share/xdg-terminal-exec/dwm-xdg-terminals.list"
 tic -sx -o "$stage/usr/local/share/terminfo" "$tmp/st/st.info"
 
+stage_awesome
 publish
-if [ -z "$dest" ]; then
-	for unit in $enable_units; do
-		sudo systemctl --system enable "$unit" ||
-		    fail "archivos instalados, pero falló habilitar $unit; corrige y repite"
-	done
-fi
-printf 'install: %s archivos actualizados; no se ha iniciado ninguna sesión ni servicio\n' "$changed"
+printf 'install: %s archivos actualizados (dwm y Awesome); no se ha habilitado ni iniciado ninguna sesión ni servicio\n' "$changed"

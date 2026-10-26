@@ -4,7 +4,10 @@ set -eu
 
 root=$1
 tmp=$2
+test_suite=${3-all}
 tab=$(printf '\t')
+PYTHONPATH=$root/scripts
+export PYTHONPATH
 
 fail()
 {
@@ -15,11 +18,66 @@ fail()
 [ -z "${DISPLAY-}${WAYLAND_DISPLAY-}${DBUS_SESSION_BUS_ADDRESS-}" ] ||
     fail 'graphical/session environment is not isolated'
 
+external_tests()
+{
+	python3 -B "$root/tests/dwm-external.py" "$root" "$tmp"
+	python3 -B "$root/tests/session.py" "$root" "$tmp"
+	python3 -B "$root/tests/displays.py" "$root" "$tmp"
+	python3 -B "$root/tests/desktop.py" "$root" "$tmp"
+	python3 -B "$root/tests/session-shortcuts.py" "$root" "$tmp"
+	lua5.3 "$root/awesome/tests/themes.lua" "$root" "$tmp"
+	python3 -B - "$root" <<'PY'
+import pathlib
+import sys
+root = pathlib.Path(sys.argv[1])
+for path in (root / 'scripts').iterdir():
+    if path.is_file() and (path.suffix == '.py' or path.read_bytes().startswith(b'#!/usr/bin/env python3')):
+        compile(path.read_text(), str(path), 'exec')
+PY
+	luac5.3 -p "$root"/awesome/config/*.lua
+	sh "$root/tests/dwm-external.sh" "$root" "$tmp"
+}
+
+if [ "$test_suite" = dwm-external ]; then
+	external_tests
+	exit 0
+fi
+
+if [ "$test_suite" = awesome-picker ]; then
+    lua5.3 "$root/awesome/tests/picker.lua" "$root" "$tmp"
+    exit 0
+fi
+
+if [ "$test_suite" = awesome-terminal ]; then
+    lua5.3 "$root/awesome/tests/terminal.lua" "$root" "$tmp"
+    exit 0
+fi
+
+if [ "$test_suite" = awesome-copyq ]; then
+    lua5.3 "$root/awesome/tests/copyq.lua" "$root" "$tmp"
+    exit 0
+fi
+
+power_tests()
+{
+    python3 -B "$root/tests/awesome-power.py" "$root" "$tmp"
+    lua5.3 "$root/awesome/tests/power.lua" "$root" "$tmp"
+}
+
+if [ "$test_suite" = awesome-power ]; then
+    power_tests
+    exit 0
+fi
+
 awesome_tests()
 {
+    power_tests
 	command -v lua5.3 >/dev/null 2>&1 || fail 'Awesome tests require lua5.3 (Arch: lua53)'
 	make -C "$root/awesome" test ROOT="$root"
 	lua5.3 "$root/awesome/tests/widgets.lua" "$root" "$tmp"
+	if [ "$test_suite" = awesome ]; then
+		python3 "$root/tests/displays.py" "$root" "$tmp"
+	fi
 	python3 "$root/tests/awesome-session.py" "$root" "$tmp"
 	python3 "$root/tests/awesome-command.py" "$root" "$tmp"
 	sh "$root/tests/awesome-package.sh" "$root" "$tmp"
@@ -33,6 +91,8 @@ if [ "${3-all}" = awesome ]; then
 	exit 0
 fi
 
+external_tests
+
 for sums in "$root"/patches/upstream/*/SHA256SUMS; do
 	[ -f "$sums" ] || continue
 	(cd "$(dirname "$sums")" && sha256sum --check SHA256SUMS)
@@ -43,7 +103,7 @@ git -C "$root" check-ignore -q .history-backups/ ||
 
 while IFS="$tab" read -r project url upstream revision tree; do
 	case "$project" in
-	dwm|dmenu|st) ;;
+	dwm|dmenu|st|dwmblocks) ;;
 	*) fail "unknown project: $project" ;;
 	esac
 	git -C "$root/$project" merge-base --is-ancestor "$revision" HEAD ||
@@ -55,8 +115,12 @@ while IFS="$tab" read -r project url upstream revision tree; do
 	if git -C "$root/$project" cat-file -e "$upstream^{commit}" 2>/dev/null; then
 		fail "$project: inherited upstream commit object is present"
 	fi
-	[ "$(git -C "$root/$project" remote)" = origin ] ||
-	    fail "$project: unexpected remotes"
+	if [ "$project" = dwmblocks ] && [ -z "$(git -C "$root/$project" remote)" ]; then
+		: # Publication destination has not been provided yet.
+	else
+		[ "$(git -C "$root/$project" remote)" = origin ] ||
+		    fail "$project: unexpected remotes"
+	fi
 	git -C "$root" check-ignore -q "$project/" ||
 	    fail "$project: source checkout is not ignored"
 	[ -z "$(git -C "$root/$project" ls-files --others --exclude-standard)" ] ||
@@ -79,7 +143,9 @@ while IFS="$tab" read -r project url upstream revision tree; do
 			    "$root/patches/$project/$patch"
 			# Rebuild config.h and every object after each feature patch.
 			make -C "$tmp/$project" clean
-			rm -f "$tmp/$project/config.h"
+			if [ -f "$tmp/$project/config.def.h" ]; then
+				rm -f "$tmp/$project/config.h"
+			fi
 			make -C "$tmp/$project" all
 			printf 'PASS: %s compiles after %s\n' "$project" "$patch"
 		done < "$root/patches/$project/series"
@@ -98,13 +164,18 @@ done < "$root/sources.tsv"
 if [ -f "$root/checkouts.tsv" ]; then
 	while IFS="$tab" read -r project url revision; do
 		case "$project" in
-		dwm|dmenu|st) ;;
+		dwm|dmenu|st|dwmblocks) ;;
 		*) fail "unknown checkpoint project: $project" ;;
 		esac
 		[ "$(git -C "$root/$project" rev-parse HEAD)" = "$revision" ] ||
 		    fail "$project: update checkouts.tsv after committing"
-		[ "$(git -C "$root/$project" remote get-url origin)" = "$url" ] ||
-		    fail "$project: origin differs from checkpoint"
+		if [ "$url" = - ]; then
+			[ "$project" = dwmblocks ] && [ -z "$(git -C "$root/$project" remote)" ] ||
+			    fail "$project: pending destination must not have remotes"
+		else
+			[ "$(git -C "$root/$project" remote get-url origin)" = "$url" ] ||
+			    fail "$project: origin differs from checkpoint"
+		fi
 	done < "$root/checkouts.tsv"
 	printf '%s\n' 'PASS: local checkpoint revisions and publication destinations'
 fi
@@ -140,11 +211,7 @@ cc -std=c99 -pedantic -Wall -D_DEFAULT_SOURCE -DVERSION=\"5.4\" -DXINERAMA \
 sh "$root/tests/export-patches.sh" "$root" "$tmp"
 sh "$root/tests/install.sh" "$root" "$tmp"
 awesome_tests
-python3 "$root/tests/desktop.py" "$root" "$tmp"
 python3 "$root/tests/commands.py" "$root" "$tmp"
-python3 "$root/tests/session.py" "$root" "$tmp"
-python3 "$root/tests/displays.py" "$root" "$tmp"
-python3 "$root/tests/session-shortcuts.py" "$root" "$tmp"
 
 for file in "$root"/tests/*.sh "$root"/scripts/*.sh "$root/session/wm-session"; do
 	[ -f "$file" ] || continue
