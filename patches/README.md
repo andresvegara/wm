@@ -86,6 +86,8 @@ Filenames use `dwm-<feature>-YYYYMMDD-bca7cf2.diff`. The order is:
 | csdmovedocs | Document application header dragging, fallback and protocol limits. |
 | csdresize | Complete EWMH pointer resize edges/corners with anchored size hints. |
 | csdresizedocs | Document complete pointer move/resize behavior and remaining limits. |
+| ewmhmaximize | Standard independent/combined EWMH maximize axes sharing placement restore. |
+| ewmhmaximizedocs | Document application maximize requests and manual state clearing. |
 
 These are ordered patches, not interchangeable standalone patches.
 Titlebaroption requires titlebarconfig and the earlier titlebar patch; taskbar
@@ -122,6 +124,10 @@ The taskbar is original project code, informed by the behavior described in the
 from that patch is copied or required. Rofi is already a session dependency.
 Applications remain standard desktop entries and extra actions use the documented
 wm/dwm/menu.json file. No additional panel or menu dependency is introduced.
+Ewmhmaximize follows csdresizedocs and reuses the existing placement and drag
+lifecycle; ewmhmaximizedocs contains documentation only. It is original code
+based on the EWMH specification, not an application-specific click interceptor.
+
 Snap builds on pointerungrab; maximize builds on snap. Fullscreen restoration
 integrates with placement state, center uses floating restoration, and monitor
 placement integrates with snap/fullscreen restoration and cross-monitor focus.

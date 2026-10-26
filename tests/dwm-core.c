@@ -30,7 +30,8 @@ static Window focused, raised, transient, mapped;
 static Atom windowtype, initialstate;
 static Atom savedstates[128][16];
 static unsigned int statecounts[128];
-static int clientdecoration;
+static int clientdecoration, stateformat = 32;
+static unsigned long stateextra;
 static XWindowChanges clientpositions[128];
 static unsigned int lastborder;
 static const char *setuppropertyvalue;
@@ -75,7 +76,8 @@ XGetWindowProperty(Display *display, Window w, Atom property, long offset,
 		*data = malloc(*count * sizeof(Atom));
 		memcpy(*data, savedstates[w], *count * sizeof(Atom));
 		*actual = XA_ATOM;
-		*format = 32;
+		*format = stateformat;
+		*remaining = stateextra;
 	} else if ((property == netatom[NetWMWindowType] && windowtype)
 	|| (property == netatom[NetWMState] && initialstate)) {
 		*data = malloc(sizeof(long));
@@ -114,6 +116,21 @@ XGrabPointer(Display *display, Window window, Bool owner, unsigned int mask,
 {
 	pointergrabs++;
 	return pointergrabfail ? AlreadyGrabbed : GrabSuccess;
+}
+
+int
+XMaskEvent(Display *display, long mask, XEvent *event)
+{
+	assert(moveeventindex < moveeventcount);
+	*event = moveevents[moveeventindex++];
+	return 0;
+}
+
+int
+XWarpPointer(Display *display, Window source, Window destination,
+	int x, int y, unsigned int width, unsigned int height, int destx, int desty)
+{
+	return 1;
 }
 
 int
@@ -469,6 +486,8 @@ reset(void)
 	focusserial = 0;
 	focusedclient = None;
 	clientdecoration = 0;
+	stateformat = 32;
+	stateextra = 0;
 	assert(!movingwin);
 	moveeventcount = moveeventindex = 0;
 	putbackevents = pointergrabs = pointerungrabs = pointergrabfail = 0;
@@ -1013,6 +1032,160 @@ testclientresize(void)
 	expectgeom(-900, 100, 701, 481);
 	assert(first.isfloating);
 	puts("PASS: all application resize edges, hints/anchoring, fixed clients and lifecycle (mock Xlib)");
+}
+
+static void
+maxrequest(long action, Atom a, Atom b)
+{
+	XEvent event = {0};
+
+	event.xclient.window = first.win;
+	event.xclient.message_type = netatom[NetWMState];
+	event.xclient.format = 32;
+	event.xclient.data.l[0] = action;
+	event.xclient.data.l[1] = a;
+	event.xclient.data.l[2] = b;
+	clientmessage(&event);
+}
+
+static int
+hasstate(Atom atom)
+{
+	unsigned int i, count = 0;
+
+	for (i = 0; i < statecounts[first.win]; i++)
+		if (savedstates[first.win][i] == atom)
+			count++;
+	assert(count <= 1);
+	return count;
+}
+
+static void
+testewmhmaximize(void)
+{
+	Atom h, v;
+	XEvent event;
+	XWindowAttributes attributes = { .x = -910, .y = 70, .width = 200, .height = 100 };
+	Client *client;
+	int i;
+
+	reset();
+	h = netatom[NetWMMaxH]; v = netatom[NetWMMaxV];
+	savedstates[first.win][0] = 999;
+	statecounts[first.win] = 1;
+	maxrequest(1, h, h);
+	assert(first.placement == PlaceMaxH && hasstate(h) && !hasstate(v));
+	expectgeom(-1000, 100, 999, 401);
+	maxrequest(1, v, None);
+	assert(first.placement == PlaceMax && hasstate(h) && hasstate(v));
+	expectgeom(-1000, 40, 999, 797);
+	maxrequest(0, h, None);
+	assert(first.placement == PlaceMaxV && !hasstate(h) && hasstate(v));
+	expectgeom(-900, 40, 601, 797);
+	maxrequest(2, v, v);
+	expectgeom(-900, 100, 601, 401);
+	assert(!first.placement && !hasstate(h) && !hasstate(v));
+	assert(statecounts[first.win] == 1 && savedstates[first.win][0] == 999);
+	maxrequest(0, h, v);
+	expectgeom(-900, 100, 601, 401);
+	maxrequest(2, v, h);
+	assert(first.placement == PlaceMax);
+	maxrequest(2, h, v);
+	assert(!first.placement);
+
+	for (i = 0; i < 2; i++) {
+		reset();
+		snapto(PlaceLeft);
+		snapto(PlaceTop);
+		maxrequest(1, i ? v : h, None);
+		assert(first.restoreplacement == (PlaceLeft | PlaceTop));
+		expectgeom(-1000, 40, i ? 498 : 999, i ? 797 : 397);
+		togglemaximize(NULL);
+		assert(first.placement == PlaceMax);
+		togglemaximize(NULL);
+		assert(first.placement == (PlaceLeft | PlaceTop));
+		placeclient(&first, 0);
+		expectgeom(-900, 100, 601, 401);
+		assert(!hasstate(h) && !hasstate(v));
+	}
+	for (i = 0; i < 8; i++) {
+		reset();
+		if (i == 0) first.isfixed = 1;
+		if (i == 1) first.isfullscreen = 1;
+		if (i == 2) first.isdock = 1;
+		if (i == 3) monitor.ww = 2;
+		if (i == 4) monitor.wh = 2;
+		if (i == 5) maxrequest(-1, h, v);
+		if (i == 6) maxrequest(3, h, v);
+		if (i == 7) {
+			event = (XEvent){0};
+			event.xclient.window = first.win;
+			event.xclient.message_type = netatom[NetWMState];
+			event.xclient.format = 8;
+			event.xclient.data.l[0] = 1;
+			event.xclient.data.l[1] = h;
+			clientmessage(&event);
+		}
+		if (i < 5) maxrequest(1, h, v);
+		assert(!first.placement && !configureevents);
+	}
+	reset();
+	first.maxw = 800; first.maxh = 600;
+	first.incw = first.inch = 10;
+	maxrequest(1, h, v);
+	assert(first.w == 800 && first.h == 600 && hasstate(h) && hasstate(v));
+	for (i = 0; i < 2; i++) {
+		reset();
+		maxrequest(1, h, v);
+		event = dragrequest();
+		if (i) event.xclient.data.l[2] = 4;
+		dragmotion(pointerx - 100, pointery - 80);
+		clientmessage(&event);
+		assert(!first.placement && !hasstate(h) && !hasstate(v));
+	}
+	for (i = 0; i < 3; i++) {
+		reset();
+		savedstates[30][0] = 999;
+		savedstates[30][1] = i == 1 ? v : h;
+		savedstates[30][2] = i == 2 ? v : savedstates[30][1];
+		statecounts[30] = 3;
+		manage(30, &attributes);
+		client = monitor.clients;
+		assert(client->placement == (i == 0 ? PlaceMaxH : i == 1 ? PlaceMaxV : PlaceMax));
+		assert(savedstates[30][0] == 999);
+		placeclient(client, 0);
+		assert(client->w == 200 && client->h == 100);
+		assert(statecounts[30] == 1 && savedstates[30][0] == 999);
+		free(client);
+	}
+	for (i = 0; i < 2; i++) {
+		reset();
+		savedstates[30][0] = h;
+		statecounts[30] = 1;
+		if (i) stateextra = 1; else stateformat = 8;
+		manage(30, &attributes);
+		client = monitor.clients;
+		assert(!client->placement);
+		free(client);
+	}
+	reset();
+	maxrequest(1, 999, None);
+	assert(!first.placement && !configureevents);
+	togglemaximize(NULL);
+	assert(hasstate(h) && hasstate(v));
+	moveeventcount = 1;
+	moveevents[0] = (XEvent){ .type = ButtonRelease };
+	resizemouse(NULL);
+	assert(!first.placement && !hasstate(h) && !hasstate(v));
+	for (i = 0; i < 3; i++) {
+		reset();
+		if (i == 0) first.isfixed = 1;
+		if (i == 1) first.isfullscreen = 1;
+		if (i == 2) first.isdock = 1;
+		resizemouse(NULL);
+		assert(!pointergrabs && !configureevents);
+	}
+	puts("PASS: EWMH maximize axes, atomic/duplicate states, snap restore, initial states and invalid requests (mock Xlib)");
 }
 
 static void
@@ -1907,6 +2080,7 @@ main(void)
 	testmaximize();
 	testclientdrag();
 	testclientresize();
+	testewmhmaximize();
 	testlimits();
 	testfullscreen();
 	testclose();
