@@ -449,6 +449,20 @@ exercise(world)
 assert "deshabilitado" in world.health_samples[-1]["issues"]["picom"]
 assert len([argv for argv in world.calls if argv[0] == "notify-send"]) == 1
 assert all(len(json.dumps(sample).encode()) <= 4096 for sample in world.health_samples)
+# A component that repeatedly survives only one cycle is one problem episode.
+world = World()
+world.wm_ticks = 35
+born = {}
+def flapping_poll(process):
+    if process.args[0] == "picom":
+        born.setdefault(process.pid, world.ticks)
+        if world.ticks > born[process.pid]:
+            process.returncode = 1
+    return original_poll(process)
+with patch.object(Process, "poll", flapping_poll):
+    exercise(world)
+assert len([argv for argv in world.calls if argv[0] == "notify-send"]) == 1
+assert "deshabilitado" in world.health_samples[-1]["issues"]["picom"]
 world = World()
 world.wm_ticks, world.exit_child = 35, "dunst"
 exercise(world)

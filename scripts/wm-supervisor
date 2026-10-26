@@ -50,7 +50,9 @@ def launch_optional(service, children, log):
             service["ready"](process)
         if process.poll() is not None:
             raise RuntimeError("el componente terminó al arrancar")
-        service["problem"] = None
+        service["stable"] = time.monotonic() + 5
+        if service["problem"]:
+            service["problem"] = "Recuperación pendiente de confirmar"
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         service["problem"] = "No pudo iniciar; consulta el registro"
         print("wm-session: {}: {}".format(service["argv"][0], error), file=log, flush=True)
@@ -80,6 +82,8 @@ def recover(services, children, log):
         if process is not None:
             code = process.poll()
             if code is None:
+                if time.monotonic() >= service["stable"]:
+                    service["problem"] = None
                 continue
             service["problem"] = "Terminó con código {}".format(code)
             print("wm-session: {} terminó con código {}".format(service["argv"][0], code),
@@ -107,7 +111,8 @@ def update_health(directory, services, warnings, state, log):
     issues = dict(warnings)
     for service in services:
         if service["problem"]:
-            retry = "; deshabilitado" if not service["restart"] or service["retries"] >= 3 else "; recuperación {}/3".format(service["retries"])
+            disabled = service["process"] is None and (not service["restart"] or service["retries"] >= 3)
+            retry = "; deshabilitado" if disabled else "; recuperación {}/3".format(service["retries"])
             issues[Path(service["argv"][0]).name] = service["problem"] + retry
     now = time.monotonic()
     if issues != state["published"] or now >= state.get("refresh", 0):
