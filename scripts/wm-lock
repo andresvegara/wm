@@ -1,0 +1,5 @@
+#!/bin/sh
+# xss-lock owns the locker and its sleep-delay inhibitor.
+set -eu
+: "${XDG_SESSION_ID:?falta XDG_SESSION_ID para bloquear esta sesión}"
+exec loginctl lock-session -- "$XDG_SESSION_ID"

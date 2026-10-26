@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+# Dunst owns history and pause state; this is only a selection interface.
+import json
+import subprocess
+import sys
+
+from wm_session import choose, command, label
+
+
+def history(text):
+    result = json.loads(text)
+    if (not isinstance(result, dict) or result.get("type") != "aa{sv}"
+            or not isinstance(result.get("data"), list) or len(result["data"]) != 1):
+        raise ValueError("respuesta de historial inválida")
+    entries = result["data"][0]
+    if not isinstance(entries, list):
+        raise ValueError("historial inválido")
+    rows = {}
+    for entry in entries[:100]:
+        identifier = entry["id"]["data"]
+        if type(identifier) is not int or not 0 < identifier <= 0xffffffff:
+            raise ValueError("identificador de notificación inválido")
+        title, body = entry["summary"]["data"], entry["body"]["data"]
+        if not isinstance(title, str) or not isinstance(body, str):
+            raise ValueError("texto de notificación inválido")
+        rows["{} · {} · {}".format(identifier, label(title), label(body))] = identifier
+    return rows
+
+
+def run():
+    level = command(["dunstctl", "get-pause-level"])
+    if not level.isascii() or not level.isdecimal() or not 0 <= int(level) <= 100:
+        raise ValueError("estado No molestar inválido")
+    toggle = "No molestar: " + ("activado" if int(level) else "desactivado")
+    entries = history(command(["dunstctl", "history"]))
+    selected = choose([toggle, "Borrar historial", *entries], "Notificaciones")
+    if selected == toggle:
+        command(["dunstctl", "set-pause-level", "0" if int(level) else "50"])
+    elif selected == "Borrar historial":
+        command(["dunstctl", "history-clear"])
+    elif selected in entries:
+        command(["dunstctl", "history-pop", str(entries[selected])])
+
+
+if __name__ == "__main__":
+    try:
+        run()
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        print("wm-notifications: " + str(error), file=sys.stderr)
+        try:
+            subprocess.run(["wm-run", "--error", "Notificaciones", str(error)], timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        sys.exit(1)

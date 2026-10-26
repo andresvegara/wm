@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+# Session-only blocks: never write sysfs or start privileged daemons ourselves.
+import argparse
+from datetime import datetime
+import math
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+SUPPLIES = Path("/sys/class/power_supply")
+PROFILES = {"performance": "Rendimiento", "balanced": "Equilibrado", "power-saver": "Ahorro"}
+
+
+def command(argv, **kwargs):
+    result = subprocess.run(argv, text=True, encoding="utf-8", stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, timeout=kwargs.pop("timeout", 5),
+                            env=dict(os.environ, LC_ALL="C"), **kwargs)
+    if result.returncode:
+        raise RuntimeError("falló {} (código {})".format(argv[0], result.returncode))
+    return result.stdout.strip()
+
+
+def report(message):
+    print("wm-status: " + message, file=sys.stderr)
+    try:
+        subprocess.run(["wm-run", "--error", "barra", message], timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def read(device, name):
+    try:
+        return (device / name).read_text().strip()
+    except OSError:
+        return None
+
+
+def battery():
+    batteries = [device for device in SUPPLIES.iterdir()
+                 if read(device, "type") == "Battery" and read(device, "present") != "0"]
+    if not batteries:
+        return "BAT --"
+    # Energy and charge cannot be mixed; use the same unit across all batteries.
+    level = None
+    for unit in ("energy", "charge"):
+        values = [(read(device, unit + "_now"), read(device, unit + "_full")) for device in batteries]
+        if all(now is not None and full is not None and now.isdigit() and full.isdigit()
+               and int(full) > 0 for now, full in values):
+            level = 100 * sum(int(now) for now, full in values) / sum(int(full) for now, full in values)
+            break
+    if level is None:
+        values = [read(device, "capacity") for device in batteries]
+        if not all(value is not None and value.isdigit() and 0 <= int(value) <= 100 for value in values):
+            raise RuntimeError("porcentaje de batería no disponible")
+        level = sum(map(int, values)) / len(values)
+    charging = any(read(device, "status") == "Charging" for device in batteries)
+    return "BAT {}%{}".format(round(max(0, min(100, level))), "+" if charging else "")
+
+
+def block(name, button):
+    if name == "keyboard":
+        argv = ["wm-keyboard"] + (["--toggle"] if button == "1" else [])
+        return command(argv)
+    if name == "power":
+        if button == "1":
+            subprocess.Popen(["wm-run", "--", "xfce4-power-manager-settings"], start_new_session=True)
+        profile = command(["powerprofilesctl", "get"])
+        if profile not in PROFILES:
+            raise RuntimeError("perfil de energía desconocido")
+        return "PWR " + PROFILES[profile]
+    if name == "volume":
+        action = {"1": "mute", "4": "volume-up", "5": "volume-down"}.get(button)
+        if action:
+            command(["wm-control", action])
+        if button == "3":
+            subprocess.Popen(["wm-run", "--", "pavucontrol"], start_new_session=True)
+        output = command(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+        match = re.fullmatch(r"Volume:\s+([0-9]+(?:\.[0-9]+)?)(\s+\[MUTED\])?", output)
+        if not match or not math.isfinite(float(match[1])):
+            raise RuntimeError("volumen no disponible")
+        return "VOL MUTE" if match[2] else "VOL {}%".format(round(min(1, float(match[1])) * 100))
+    if name == "battery":
+        if button == "1":
+            subprocess.Popen(["wm-run", "--", "xfce4-power-manager-settings"], start_new_session=True)
+        return battery()
+    if name == "notifications":
+        if button == "1":
+            subprocess.Popen(["wm-run", "--", "wm-notifications"], start_new_session=True)
+        count = command(["dunstctl", "count", "history"], timeout=2)
+        level = command(["dunstctl", "get-pause-level"], timeout=2)
+        if not count.isascii() or not count.isdecimal() or not level.isascii() or not level.isdecimal() or int(level) > 100:
+            raise RuntimeError("estado de notificaciones inválido")
+        return "Avisos {}{}".format(count, " · DND" if int(level) else "")
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def run():
+    parser = argparse.ArgumentParser(description="Bloques propios para dwmblocks")
+    parser.add_argument("block", choices=("keyboard", "power", "volume", "battery", "clock", "notifications"))
+    options = parser.parse_args()
+    button = os.environ.get("BLOCK_BUTTON", "")
+    if button not in ("", "1", "2", "3", "4", "5", "6", "7", "8", "9"):
+        return 1
+    try:
+        print(block(options.block, button))
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        print("wm-status: " + str(error), file=sys.stderr)
+        print({"keyboard": "KB ?", "power": "PWR ?", "volume": "VOL ?", "battery": "BAT ?"}.get(options.block, "?"))
+        if button:
+            report(str(error))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run())
