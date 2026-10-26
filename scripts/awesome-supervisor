@@ -2,6 +2,7 @@
 # Own child process groups, never the desktop's shared agents or services.
 import fcntl
 import hashlib
+from wm_session import themes, resources, xsettings_owner
 import os
 from pathlib import Path
 import re
@@ -10,8 +11,16 @@ import stat
 import subprocess
 import sys
 import time
+import traceback
 
 DATA = Path(__file__).resolve().parent.parent / "share" / "wm"
+LOG = None
+
+
+def event(message):
+    output = LOG if LOG is not None else sys.stderr
+    print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+          "[supervisor]", message, file=output, flush=True)
 
 
 def command(argv, required=True, timeout=20):
@@ -22,13 +31,31 @@ def command(argv, required=True, timeout=20):
     return result
 
 
-def owns(name):
+def owns(name, timeout=20):
     result = command(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
                       "--object-path", "/org/freedesktop/DBus", "--method",
-                      "org.freedesktop.DBus.NameHasOwner", name])
+                      "org.freedesktop.DBus.NameHasOwner", name], timeout=timeout)
     if result.stdout.strip() not in ("(true,)", "(false,)"):
         raise RuntimeError("respuesta D-Bus inválida")
     return result.stdout.strip() == "(true,)"
+
+
+def notification_ready(process):
+    result = command(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
+                      "--object-path", "/org/freedesktop/DBus", "--method",
+                      "org.freedesktop.DBus.GetConnectionUnixProcessID",
+                      "org.freedesktop.Notifications"], required=False, timeout=1)
+    if result.returncode:
+        probe_status(process, "notifications", "code={} stderr={}".format(
+            result.returncode, result.stderr.strip()[:512]))
+        return False
+    match = re.fullmatch(r"\(uint32 ([0-9]+),\)", result.stdout.strip())
+    if not match:
+        raise RuntimeError("respuesta PID D-Bus inválida")
+    probe_status(process, "notifications", "owner pid=" + match[1])
+    if int(match[1]) != process.pid:
+        raise RuntimeError("otro proceso ocupa org.freedesktop.Notifications; no se modificó")
+    return True
 
 
 def private(path, parents=False):
@@ -44,7 +71,7 @@ def private(path, parents=False):
 
 
 def open_private(path, truncate=False):
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     try:
         info = os.fstat(fd)
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
@@ -52,39 +79,68 @@ def open_private(path, truncate=False):
             raise RuntimeError("archivo privado inseguro: {}".format(path))
         if truncate:
             os.ftruncate(fd, 0)
-        return os.fdopen(fd, "w")
+        return os.fdopen(fd, "w+")
     except BaseException:
         os.close(fd)
         raise
 
 
 def start(children, argv, log, required=True):
+    event("start {}".format(argv[0]))
     process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log,
                                stderr=subprocess.STDOUT, start_new_session=True)
+    event("started {} pid={}".format(argv[0], process.pid))
     children.append((process, required))
     return process
 
 
 def stop(process):
+    event("stop {} pid={} status={}".format(process.args[0], process.pid, process.poll()))
     try:
         os.killpg(process.pid, signal.SIGTERM)
         try:
             process.wait(timeout=3)
         except subprocess.TimeoutExpired:
+            event("stop timeout; killing pid={}".format(process.pid))
             os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=3)
     except ProcessLookupError:
         pass
 
 
-def ready(process, check, name, interrupted):
-    for attempt in range(50):
-        if interrupted() or process.poll() is not None:
-            break
-        if check():
-            return
-        time.sleep(0.1)
-    raise RuntimeError("no inició {}".format(name))
+def ready(process, check, name, interrupted, timeout=15):
+    started = time.monotonic()
+    deadline = started + timeout
+    attempt = 0
+    event("waiting {} pid={} deadline={}s".format(name, process.pid, timeout))
+    while time.monotonic() < deadline:
+        if interrupted():
+            raise RuntimeError("inicio interrumpido mientras esperaba " + name)
+        status = process.poll()
+        if status is not None:
+            raise RuntimeError("terminó {} durante el inicio (código {})".format(name, status))
+        attempt += 1
+        try:
+            if check():
+                event("ready {} elapsed={:.3f}s attempts={}".format(
+                    name, time.monotonic() - started, attempt))
+                return
+        except subprocess.TimeoutExpired as error:
+            event("probe timeout {} attempt={} command={}".format(name, attempt, error.cmd))
+        if attempt == 1 or attempt % 10 == 0:
+            event("pending {} elapsed={:.3f}s attempt={}".format(
+                name, time.monotonic() - started, attempt))
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    raise RuntimeError("no inició {} tras {:.3f}s; consulta las últimas fases [awesome] del log".format(
+        name, time.monotonic() - started))
+
+
+def probe_status(process, name, status):
+    states = getattr(process, "_probe_states", {})
+    if states.get(name) != status:
+        event("probe {} pid={} {}".format(name, process.pid, status))
+        states[name] = status
+        process._probe_states = states
 
 
 def wm_ready(process):
@@ -92,17 +148,66 @@ def wm_ready(process):
     fields = dict(re.findall(r"^([^:\n]+):\s*(.*?)\s*$", result.stdout, re.MULTILINE))
     if (result.returncode != 0 or fields.get("Name") != "awesome"
             or fields.get("PID") != str(process.pid)):
+        probe_status(process, "wmctrl", "code={} name={} pid={} stderr={}".format(
+            result.returncode, fields.get("Name"), fields.get("PID"), result.stderr.strip()[:512]))
         return False
-    configured = command(["awesome-client", "return wm_ready == true"], required=False, timeout=1)
-    return configured.returncode == 0 and configured.stdout.strip() == "boolean true"
+    probe_status(process, "wmctrl", "owner confirmed")
+    # Call the same method as awesome-client directly, with a D-Bus reply timeout.
+    # Retrying must not leave the shell client's dbus-send/tail children behind.
+    configured = command(["dbus-send", "--session", "--dest=org.awesomewm.awful",
+                          "--type=method_call", "--print-reply", "--reply-timeout=1000",
+                          "/", "org.awesomewm.awful.Remote.Eval",
+                          "string:return wm_ready == true"], required=False, timeout=2)
+    configured_ready = configured.returncode == 0 and re.search(
+        r"^\s*boolean true\s*$", configured.stdout, re.MULTILINE) is not None
+    probe_status(process, "configuration", "ready={} code={} reply={} stderr={}".format(
+        configured_ready, configured.returncode, configured.stdout.strip()[-512:],
+        configured.stderr.strip()[:512]))
+    return configured_ready
+
+
+def appearance_config(directory):
+    state = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wm/awesome/appearance"
+    profiles, default = themes(DATA / "awesome/config/themes.json")
+    selected = default
+    try:
+        for parent in state.parents:
+            if parent.is_symlink():
+                raise RuntimeError("enlace no permitido: {}".format(parent))
+        fd = os.open(state, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        pass
+    else:
+        with os.fdopen(fd) as source:
+            info = os.fstat(source.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_mode & 0o077 or info.st_nlink != 1):
+                raise RuntimeError("selección de apariencia insegura")
+            selected = source.read(32).strip()
+            if selected not in profiles:
+                raise RuntimeError("selección de apariencia desconocida")
+    resolved = resources(profiles[selected])
+    if resolved is None:
+        selected = default
+        resolved = resources(profiles[selected])
+    theme, icons = resolved
+    event("appearance selected={} gtk={} icons={}".format(selected, theme, icons))
+    config = directory / "xsettingsd.conf"
+    with open_private(config, truncate=True) as output:
+        output.write('Net/ThemeName "{}"\nNet/IconThemeName "{}"\n'.format(theme, icons))
+    os.environ["WM_AWESOME_APPEARANCE_CONFIG"] = str(config)
+    os.environ["WM_AWESOME_APPEARANCE_STATE"] = str(state)
+    return config
 
 
 def run():
+    global LOG
+    event("session begin pid={} display={} config={}".format(os.getpid(), os.environ.get("DISPLAY"), DATA / "awesome/rc.lua"))
     if not os.environ.get("DISPLAY") or os.environ.get("XDG_SESSION_TYPE", "x11") != "x11":
         raise RuntimeError("selecciona la sesión Awesome X11 en el gestor de acceso")
     if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
         raise RuntimeError("falta el bus de sesión; inicia desde SDDM")
-    for config in (DATA / "dunstrc", DATA / "awesome/rc.lua"):
+    for config in (DATA / "awesome/rc.lua", DATA / "awesome-picom.conf"):
         if not config.is_file():
             raise RuntimeError("falta configuración de sesión: {}".format(config))
     if command(["wmctrl", "-m"], required=False).returncode == 0:
@@ -115,6 +220,8 @@ def run():
         result = command(["pgrep", "-u", str(os.getuid()), "-x", name[:15]], required=False)
         if result.returncode != 1:
             raise RuntimeError("componente existente o comprobación fallida: {}".format(name))
+    if xsettings_owner():
+        raise RuntimeError("otro proceso ocupa XSettings; no se modificó")
     runtime = private(Path(os.environ["XDG_RUNTIME_DIR"]))
     key = hashlib.sha256(os.environ["DISPLAY"].encode()).hexdigest()[:16]
     # Share dwm's lock namespace so both prepared sessions cannot race on DISPLAY.
@@ -125,17 +232,37 @@ def run():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("ya hay una sesión wm en esta pantalla")
-        with open_private(cache / ("awesome-session-" + key + ".log"), truncate=True) as log:
+        path = cache / ("awesome-session-" + key + ".log")
+        # Copy through validated descriptors before truncating the current log.
+        with open_private(path) as previous, open_private(Path(str(path) + ".previous")) as backup:
+            os.ftruncate(backup.fileno(), 0)
+            while True:
+                block = previous.buffer.read(65536)
+                if not block:
+                    break
+                backup.buffer.write(block)
+        with open_private(path, truncate=True) as log:
+            LOG = log
+            event("session begin pid={} display={} config={}".format(
+                os.getpid(), os.environ["DISPLAY"], DATA / "awesome/rc.lua"))
+            event("log={} previous={}.previous".format(path, path))
             children = []
             interrupted = False
 
             def interrupt(signum, frame):
                 nonlocal interrupted
                 interrupted = True
+                # Logging here could reenter a buffered write; report in finally.
 
             handlers = {sig: signal.signal(sig, interrupt)
                         for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)}
             try:
+                event("prepare appearance")
+                config = appearance_config(directory)
+                settings = start(children, ["xsettingsd", "--config", str(config)], log)
+                ready(settings, lambda: bool(xsettings_owner()), "XSettings Awesome", lambda: interrupted)
+                os.environ["WM_AWESOME_XSETTINGSD_PID"] = str(settings.pid)
+                event("check secrets service")
                 if not owns("org.freedesktop.secrets"):
                     command(["systemctl", "--user", "start", "gnome-keyring-daemon.socket"])
                     command(["gnome-keyring-daemon", "--start", "--components=secrets"])
@@ -147,6 +274,7 @@ def run():
                         time.sleep(0.1)
                     else:
                         raise RuntimeError("no inició el servicio de secretos")
+                event("check SSH agent")
                 if not os.environ.get("SSH_AUTH_SOCK"):
                     command(["systemctl", "--user", "start", "gcr-ssh-agent.socket"])
                     agent = runtime / "gcr/ssh"
@@ -159,18 +287,17 @@ def run():
                     else:
                         raise RuntimeError("no apareció el socket GCR de esta sesión")
                     os.environ["SSH_AUTH_SOCK"] = str(agent)
-                command(["xsetroot", "-solid", "#f6f5f4"])
                 wm = start(children, ["awesome", "-c", str(DATA / "awesome/rc.lua")], log, required=False)
                 ready(wm, lambda: wm_ready(wm), "Awesome", lambda: interrupted)
-                notification = start(children, ["dunst", "-conf", str(DATA / "dunstrc")], log)
-                ready(notification, lambda: owns("org.freedesktop.Notifications"), "Dunst", lambda: interrupted)
+                ready(wm, lambda: notification_ready(wm), "notificaciones Awesome", lambda: interrupted)
+                start(children, ["picom", "--config", str(DATA / "awesome-picom.conf")], log, required=False)
                 start(children, ["lxqt-policykit-agent"], log)
                 bridge = start(children, ["snixembed"], log)
-                ready(bridge, lambda: owns("org.kde.StatusNotifierWatcher"), "snixembed", lambda: interrupted)
+                ready(bridge, lambda: owns("org.kde.StatusNotifierWatcher", timeout=1), "snixembed", lambda: interrupted)
                 start(children, ["nm-applet"], log, required=False)
                 start(children, ["copyq"], log, required=False)
                 start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)
-                command(["xset", "s", "600", "600"])
+                event("session ready")
                 while wm.poll() is None and not interrupted:
                     for process, required in children:
                         if required and process.poll() is not None:
@@ -178,15 +305,22 @@ def run():
                     time.sleep(1)
                 if not interrupted and wm.returncode:
                     raise RuntimeError("Awesome terminó con código {}".format(wm.returncode))
+            except BaseException:
+                event("session failure\n" + traceback.format_exc())
+                raise
             finally:
+                event("cleanup begin interrupted={}".format(interrupted))
                 cleanup_error = None
                 for process, required in reversed(children):
                     try:
                         stop(process)
                     except (OSError, subprocess.SubprocessError) as error:
                         cleanup_error = error
+                        event("cleanup failure {}: {}".format(process.args[0], error))
                 for sig, handler in handlers.items():
                     signal.signal(sig, handler)
+                event("cleanup complete")
+                LOG = None
                 if cleanup_error is not None:
                     raise RuntimeError("no se completó la limpieza: {}".format(cleanup_error))
 

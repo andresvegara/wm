@@ -2,6 +2,7 @@
 # Own only the processes started here; never stop another desktop's services.
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -9,6 +10,8 @@ import signal
 import subprocess
 import sys
 import time
+
+from wm_session import open_private, private_directory, xsettings_owner
 
 DATA = Path(__file__).resolve().parent.parent / "share" / "wm"
 
@@ -25,6 +28,8 @@ def owns(name):
     result = command(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
                       "--object-path", "/org/freedesktop/DBus", "--method",
                       "org.freedesktop.DBus.NameHasOwner", name])
+    if result.stdout.strip() not in ("(true,)", "(false,)"):
+        raise RuntimeError("respuesta de propiedad D-Bus inválida")
     return result.stdout.strip() == "(true,)"
 
 
@@ -70,39 +75,99 @@ def readytray(process):
     raise RuntimeError("dwm no obtuvo su bandeja XEmbed")
 
 
+def configure_power():
+    settings = (
+        ("xfce4-session", "/general/LockCommand", "string", "wm-lock"),
+        ("xfce4-power-manager", "/xfce4-power-manager/lock-screen-suspend-hibernate", "bool", "true"),
+        ("xfce4-power-manager", "/xfce4-power-manager/handle-brightness-keys", "bool", "false"),
+        ("xfce4-power-manager", "/xfce4-power-manager/show-brightness-popup", "bool", "false"),
+    )
+    for channel, key, kind, value in settings:
+        command(["xfconf-query", "-c", channel, "-p", key, "--create", "-t", kind, "-s", value])
+    for source, profile in (("ac", "performance"), ("battery", "balanced")):
+        key = "/xfce4-power-manager/profile-on-" + source
+        argv = ["xfconf-query", "-c", "xfce4-power-manager", "-p", key]
+        result = command(argv, required=False)
+        if result.returncode == 1:
+            command([*argv, "--create", "-t", "string", "-s", profile])
+        elif result.returncode:
+            raise RuntimeError("no se pudo consultar el perfil de energía")
+
+
+def readylocker(process):
+    argv = ["busctl", "--system", "--json=short", "call", "org.freedesktop.login1",
+            "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "ListInhibitors"]
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            break
+        try:
+            result = command(argv, required=False, timeout=1)
+        except subprocess.TimeoutExpired:
+            continue
+        if result.returncode == 0:
+            reply = json.loads(result.stdout)
+            if (not isinstance(reply, dict) or reply.get("type") != "a(ssssuu)"
+                    or not isinstance(reply.get("data"), list) or len(reply["data"]) != 1
+                    or not isinstance(reply["data"][0], list)):
+                raise RuntimeError("respuesta de inhibidores inválida")
+            for row in reply["data"][0]:
+                if not isinstance(row, list) or len(row) != 6 or not isinstance(row[0], str):
+                    raise RuntimeError("fila de inhibidor inválida")
+                if (row[5] == process.pid and row[4] == os.getuid()
+                        and row[3] == "delay" and "sleep" in row[0].split(":")):
+                    return
+        time.sleep(0.1)
+    raise RuntimeError("xss-lock no obtuvo su inhibidor de sueño; no se iniciará energía")
+
+
+def readysettings(process):
+    for attempt in range(50):
+        if process.poll() is not None:
+            break
+        if xsettings_owner():
+            return
+        time.sleep(0.1)
+    raise RuntimeError("no inició XSettings")
+
+
 def run():
+    if not os.environ.get("XDG_SESSION_ID"):
+        raise RuntimeError("falta XDG_SESSION_ID para coordinar el bloqueo")
     if not os.environ.get("DISPLAY") or os.environ.get("XDG_SESSION_TYPE", "x11") != "x11":
         raise RuntimeError("selecciona la sesión dwm X11 en el gestor de acceso")
     if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
         raise RuntimeError("falta el bus de sesión; inicia desde SDDM")
-    for config in ("dunstrc", "picom.conf", "pulse-client.conf"):
+    for config in ("dunstrc", "picom.conf", "themes.json", "rofi.rasi"):
         if not (DATA / config).is_file():
             raise RuntimeError("falta configuración de sesión: {}".format(DATA / config))
     if command(["wmctrl", "-m"], required=False).returncode == 0:
         raise RuntimeError("ya hay un gestor de ventanas en esta pantalla; no se modificó")
-    for name in ("org.freedesktop.Notifications", "org.kde.StatusNotifierWatcher"):
+    for name in ("org.freedesktop.Notifications", "org.kde.StatusNotifierWatcher",
+                 "org.xfce.PowerManager", "org.freedesktop.PowerManagement", "org.kde.Solid.PowerManagement"):
         if owns(name):
             raise RuntimeError("otro escritorio ocupa {}; cierra esa sesión primero".format(name))
+    version = re.search(r"(\d+)\.(\d+)", command(["xfce4-power-manager", "--version"]).stdout)
+    if not version or tuple(map(int, version.groups())) < (4, 20):
+        raise RuntimeError("se requiere Xfce Power Manager 4.20 o posterior")
+    if xsettings_owner():
+        raise RuntimeError("ya existe un gestor XSettings")
     runtime = Path(os.environ["XDG_RUNTIME_DIR"])
     key = hashlib.sha256(os.environ["DISPLAY"].encode()).hexdigest()[:16]
     directory = runtime / ("wm-" + key)
-    directory.mkdir(mode=0o700, exist_ok=True)
     cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "wm"
-    cache.mkdir(mode=0o700, parents=True, exist_ok=True)
     for folder in (runtime, directory, cache):
-        if folder.is_symlink() or folder.stat().st_uid != os.getuid() or folder.stat().st_mode & 0o077:
-            raise RuntimeError("directorio privado inseguro: {}".format(folder))
+        private_directory(folder)
     logfile = cache / ("session-" + key + ".log")
     for path in (directory / "session.lock", logfile):
         if path.is_symlink():
             raise RuntimeError("enlace no permitido: {}".format(path))
-    with (directory / "session.lock").open("a") as lock:
+    with open_private(directory / "session.lock") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("ya hay una sesión dwm en esta pantalla")
-        log = logfile.open("w")
-        os.chmod(log.name, 0o600)
+        log = open_private(logfile, truncate=True)
         children = []
         interrupted = False
 
@@ -112,7 +177,14 @@ def run():
 
         handlers = {sig: signal.signal(sig, interrupt) for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)}
         try:
-            command(["setxkbmap", "-layout", "es", "-variant", ""])
+            command(["setxkbmap", "-layout", "es,us", "-variant", ","])
+            command(["wm-keyboard", "--reset"])
+            os.environ["WM_DWM_RUNTIME"] = str(directory)
+            os.environ["WM_ROFI_THEME"] = str(directory / "rofi.rasi")
+            command(["wm-appearance", "--prepare", str(directory)])
+            settings = start(children, ["xsettingsd", "--config", str(directory / "xsettingsd.conf")], log)
+            readysettings(settings)
+            os.environ["WM_DWM_XSETTINGSD_PID"] = str(settings.pid)
             if not owns("org.freedesktop.secrets"):
                 command(["systemctl", "--user", "start", "gnome-keyring-daemon.socket"])
                 command(["gnome-keyring-daemon", "--start", "--components=secrets"])
@@ -132,29 +204,37 @@ def run():
                 else:
                     raise RuntimeError("no apareció el socket GCR de esta sesión")
                 os.environ["SSH_AUTH_SOCK"] = str(agent)
-            command(["xsetroot", "-solid", "#f6f5f4", "-name",
-                     time.strftime("%Y-%m-%d %H:%M:%S")])
+            command(["xsetroot", "-solid", "#f6f5f4", "-name", "wm"])
             wm = start(children, [str(Path(__file__).resolve().parent / "dwm")], log, required=False)
             readytray(wm)
-            notification = start(children, ["dunst", "-conf", str(DATA / "dunstrc")], log)
+            notification = start(children, ["dunst", "-conf", str(directory / "dunstrc")], log)
             ready(notification, "org.freedesktop.Notifications")
+            try:
+                background = command(["wm-wallpaper", "--restore"], required=False)
+                if background.returncode:
+                    print(background.stderr, file=log)
+            except (OSError, subprocess.SubprocessError) as error:
+                print("wm-wallpaper: " + str(error), file=log)
             start(children, ["picom", "--config", str(DATA / "picom.conf")], log, required=False)
             start(children, ["lxqt-policykit-agent"], log)
             bridge = start(children, ["snixembed"], log)
             ready(bridge, "org.kde.StatusNotifierWatcher")
-            start(children, ["cbatticon"], log, required=False)
-            start(children, ["pasystray", "--notify=none", "--volume-max=100"], log, required=False,
-                  env=dict(os.environ, PULSE_CLIENTCONFIG=str(DATA / "pulse-client.conf")))
+            start(children, [str(Path(__file__).resolve().parent / "dwmblocks")], log, required=False)
             start(children, ["nm-applet"], log, required=False)
             start(children, ["copyq"], log, required=False)
-            start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)
+            locker = start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)
+            readylocker(locker)
+            configure_power()
+            # Since 4.20 it stays in the foreground unless --daemon is supplied.
+            power = start(children, ["xfce4-power-manager"], log)
+            ready(power, "org.xfce.PowerManager")
             command(["xset", "s", "600", "600"])
+            command(["wm-appearance", "--apply-current"])
             start(children, [str(Path(__file__).resolve().parent / "wm-displays"), "--watch"], log)
             while wm.poll() is None and not interrupted:
                 for process, required in children:
                     if required and process.poll() is not None:
                         raise RuntimeError("terminó un componente necesario: {}".format(process.args[0]))
-                command(["xsetroot", "-name", time.strftime("%Y-%m-%d %H:%M:%S")])
                 time.sleep(1)
             if not interrupted and wm.returncode:
                 raise RuntimeError("dwm terminó con código {}".format(wm.returncode))
@@ -175,7 +255,7 @@ def run():
 if __name__ == "__main__":
     try:
         run()
-    except (OSError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+    except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
         message = "wm-session: {}".format(error)
         print(message, file=sys.stderr)
         # This runs only on an explicitly started session, never from installation.

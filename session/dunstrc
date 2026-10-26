@@ -2,26 +2,30 @@
 [global]
     font = Hack Nerd Font Mono 11
     frame_width = 1
-    frame_color = "#c0bfbc"
+    frame_color = "#909090"
     corner_radius = 4
+    history_length = 100
+    progress_bar = true
 
 [urgency_low]
-    background = "#f6f5f4"
-    foreground = "#2e3436"
+    background = "#dcdcdc"
+    foreground = "#3c3c3c"
     timeout = 5
 
 [urgency_normal]
-    background = "#f6f5f4"
-    foreground = "#2e3436"
+    background = "#dcdcdc"
+    foreground = "#3c3c3c"
     timeout = 10
 
 [urgency_critical]
-    background = "#f6f5f4"
+    override_pause_level = 100
+    background = "#dcdcdc"
     foreground = "#a51d2d"
     frame_color = "#a51d2d"
     timeout = 0
 
 [wm-osd]
     appname = wm-osd
+    override_pause_level = 100
     timeout = 1500ms
     history_ignore = yes

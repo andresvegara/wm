@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=st (Awesome)
+Comment=Opaque terminal for Awesome
+Exec=/usr/local/bin/st -A 1 -c St -n st
+TryExec=/usr/local/bin/st
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+OnlyShowIn=awesome;
+X-TerminalArgExec=-e
+X-TerminalArgAppId=-c
+X-TerminalArgTitle=-t

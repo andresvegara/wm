@@ -1,48 +1,41 @@
-"""Exercise the supervisor with inert process/bus/clock/monitor doubles only."""
-from datetime import datetime
+"""Real dwm supervisor with synthetic process, bus, RandR and XSettings boundaries."""
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
 import types
+from unittest.mock import patch
 
 root, temporary = map(Path, sys.argv[1:])
+sys.path.insert(0, str(root / "scripts"))
 module = types.ModuleType("supervisor")
 module.__file__ = str(root / "scripts/wm-supervisor")
 exec(compile(Path(module.__file__).read_text(), module.__file__, "exec"), module.__dict__)
-module.DATA = root / "session"
-clockvalue = datetime(2026, 10, 20, 3, 4, 5)
-inventory = (root / "scripts/dependencies.tsv").read_text()
-assert "tint2" not in inventory and not (module.DATA / "tint2rc").exists()
-assert "pc\txrandr\tlibxrandr\txrandr.pc\n" in inventory
-assert "nitrogen" not in inventory and "trayer" not in inventory
 
 
 class Process:
-    def __init__(self, owner, argv, env=None):
-        self.owner, self.args = owner, argv
-        self.pid = 900000 + len(owner.processes)
+    def __init__(self, world, argv):
+        self.world, self.args = world, argv
+        self.pid = 1000 + len(world.processes)
         self.returncode = None
-        self.polls = 0
-        self.waits = 0
-        self.environment = dict(os.environ if env is None else env)
-        owner.processes.append(self)
+        self.waited = False
 
     def poll(self):
-        if self.args[0].endswith("/dwm"):
-            self.polls += 1
-            if self.polls > self.owner.wm_lifetime:
-                self.returncode = self.owner.wm_code
-        elif self.args[0] == self.owner.dead:
-            self.returncode = 3
+        name = Path(self.args[0]).name
+        if name == self.world.exit_child or (self.world.late_child == name and self.world.ticks):
+            self.returncode = 1
+        if name == "dwm" and self.world.ticks >= 2:
+            self.returncode = 0
         return self.returncode
 
     def wait(self, timeout):
-        self.waits += 1
-        if self.owner.stubborn and self.waits == 1:
+        assert timeout == 3
+        if self.world.slow_child == Path(self.args[0]).name and not self.waited:
+            self.waited = True
             raise subprocess.TimeoutExpired(self.args, timeout)
         self.returncode = 0
         return 0
@@ -50,277 +43,251 @@ class Process:
 
 class World:
     def __init__(self):
-        self.processes, self.calls, self.kills, self.handlers = [], [], [], {}
-        self.dead = self.fail_spawn = self.fail_command = None
-        self.foreign = self.existing_wm = self.stubborn = False
-        self.secret = True
-        self.agent = False
-        self.no_agent = self.no_secrets = False
-        self.wm_code = 0
-        self.interrupt = None
-        self.tray_output = None
-        self.tray_timeout = False
-        self.tray_code = 0
-        self.wm_lifetime = 2
-        self.sleeps = []
+        self.processes, self.calls, self.kills = [], [], []
+        self.handlers, self.ticks = {}, 0
+        self.exit_child = self.late_child = self.fail_command = self.slow_child = None
+        self.conflict = None
+        self.pref_exists, self.secrets = True, True
+        self.bad_tray, self.bad_ownership, self.bad_inhibitor = False, False, False
+        self.bad_bus, self.bad_inhibitor_reply = False, False
+        self.clock = 0
+        self.version = "4.20.0"
+        self.wallpaper_status = 0
+
+    def popen(self, argv, **kwargs):
+        assert kwargs["stdin"] == subprocess.DEVNULL
+        assert kwargs["stderr"] == subprocess.STDOUT and kwargs["start_new_session"]
+        if Path(argv[0]).name == self.fail_command:
+            raise OSError("synthetic spawn failure")
+        process = Process(self, argv)
+        self.processes.append(process)
+        return process
 
     def run(self, argv, **kwargs):
         self.calls.append(argv)
-        assert kwargs.get("timeout") == (1 if argv[0] == "xprop" else 20)
-        name = argv[0]
-        code, output = 0, ""
+        name = Path(argv[0]).name
         if name == self.fail_command:
-            raise OSError("synthetic failure")
+            raise OSError("synthetic command failure")
+        code, output = 0, ""
         if name == "wmctrl":
             assert argv == ["wmctrl", "-m"]
-            code = 0 if self.existing_wm else 1
+            code = 1
         elif name == "gdbus":
-            assert argv[-1] in ("org.freedesktop.Notifications", "org.kde.StatusNotifierWatcher", "org.freedesktop.secrets")
-            if argv[-1] == "org.freedesktop.secrets":
-                owned = self.secret
-            else:
-                executable = "dunst" if argv[-1] == "org.freedesktop.Notifications" else "snixembed"
-                owned = self.foreign or any(p.args[0] == executable for p in self.processes)
-            output = "(true,)" if owned else "(false,)"
-        elif name == "systemctl":
-            assert argv in (["systemctl", "--user", "start", "gnome-keyring-daemon.socket"],
-                            ["systemctl", "--user", "start", "gcr-ssh-agent.socket"])
-            if argv[-1] == "gcr-ssh-agent.socket":
-                self.agent = not self.no_agent
-        elif name == "gnome-keyring-daemon":
-            assert argv == [name, "--start", "--components=secrets"]
-            self.secret = not self.no_secrets
+            target = argv[-1]
+            owned = target == self.conflict or target == "org.freedesktop.secrets" and self.secrets
+            owned |= any({"dunst": "org.freedesktop.Notifications", "snixembed": "org.kde.StatusNotifierWatcher",
+                          "xfce4-power-manager": "org.xfce.PowerManager"}.get(Path(p.args[0]).name) == target
+                         for p in self.processes)
+            output = "invalid" if self.bad_bus else "(true,)" if owned else "(false,)"
         elif name == "xprop":
-            assert argv == [name, "-root", "_WM_SYSTRAY"]
-            if self.tray_timeout:
-                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
-            code = self.tray_code
-            wm = next(p for p in self.processes if p.args[0].endswith("/dwm"))
-            assert not any(p.args[0] == "snixembed" for p in self.processes)
-            output = self.tray_output if self.tray_output is not None else (
-                "_WM_SYSTRAY(CARDINAL) = {}, 50\n".format(wm.pid))
+            assert argv == ["xprop", "-root", "_WM_SYSTRAY"]
+            wm = next(p for p in self.processes if Path(p.args[0]).name == "dwm")
+            output = "garbage" if self.bad_tray else "_WM_SYSTRAY(CARDINAL) = {}, 50\n".format(wm.pid + self.bad_ownership)
+        elif name == "xfce4-power-manager":
+            assert argv == [name, "--version"]
+            output = "Xfce Power Manager " + self.version
+        elif name == "busctl":
+            assert kwargs["timeout"] == 1 and argv[-1] == "ListInhibitors"
+            locker = next(p for p in self.processes if p.args[0] == "xss-lock")
+            output = json.dumps({"type": "a(ssssuu)", "data": [[["sleep", "xss-lock", "lock", "delay",
+                                  os.getuid(), locker.pid + int(self.bad_inhibitor)]]]})
+            if self.bad_inhibitor_reply:
+                output = '{"type":"a(ssssuu)","data":["bad"]}'
+        elif name == "xfconf-query":
+            if "--create" not in argv:
+                code, output = (0, "balanced") if self.pref_exists else (1, "")
         elif name == "setxkbmap":
-            assert argv == [name, "-layout", "es", "-variant", ""]
-            assert not self.processes
+            assert argv == [name, "-layout", "es,us", "-variant", ","] and not self.processes
+        elif name == "wm-keyboard":
+            assert argv == [name, "--reset"] and not self.processes
+        elif name == "wm-appearance":
+            assert argv[1] in ("--prepare", "--apply-current")
         elif name == "xsetroot":
-            assert argv in ([name, "-solid", "#f6f5f4", "-name", clockvalue.strftime("%Y-%m-%d %H:%M:%S")],
-                            [name, "-name", clockvalue.strftime("%Y-%m-%d %H:%M:%S")])
+            assert argv == [name, "-solid", "#f6f5f4", "-name", "wm"]
+        elif name == "wm-wallpaper":
+            assert argv == [name, "--restore"]
+            assert any(p.args[0] == "dunst" for p in self.processes)
+            code = self.wallpaper_status
         elif name == "xset":
             assert argv == [name, "s", "600", "600"]
+        elif name == "systemctl":
+            assert argv in ([name, "--user", "start", "gnome-keyring-daemon.socket"],
+                            [name, "--user", "start", "gcr-ssh-agent.socket"])
+            self.secrets = True
+        elif name == "gnome-keyring-daemon":
+            assert argv == [name, "--start", "--components=secrets"]
         else:
-            raise AssertionError(("unmocked command", argv))
-        return types.SimpleNamespace(returncode=code, stdout=output)
-
-    def popen(self, argv, **kwargs):
-        assert kwargs["start_new_session"] is True
-        assert kwargs["stdin"] == subprocess.DEVNULL
-        if argv[0] == self.fail_spawn:
-            raise OSError("synthetic spawn failure")
-        return Process(self, argv, kwargs.get("env"))
+            raise AssertionError(("UNMOCKED COMMAND", argv))
+        return subprocess.CompletedProcess(argv, code, output, "")
 
     def kill(self, pid, sig):
-        assert pid in [p.pid for p in self.processes], ("foreign process", pid)
+        assert pid in {p.pid for p in self.processes}
         self.kills.append((pid, sig))
 
-    def sleep(self, seconds):
-        self.sleeps.append(seconds)
-        if seconds == 1 and self.interrupt is not None:
-            self.handlers[self.interrupt](self.interrupt, None)
+    def monotonic(self):
+        self.clock += 0.01
+        return self.clock
 
-    def signal(self, sig, handler):
+    def sleep(self, seconds):
+        assert seconds in (1, 0.1)
+        self.clock += seconds
+        if seconds == 1:
+            self.ticks += 1
+
+    def handler(self, sig, handler):
         previous = self.handlers.get(sig, signal.SIG_DFL)
         self.handlers[sig] = handler
         return previous
 
-
-original = (subprocess.run, subprocess.Popen, os.killpg, signal.signal,
-            module.time, Path.is_socket)
-environment = dict(os.environ)
-serial = 0
+    def owner(self):
+        return 99 if self.conflict == "XSettings" or any(p.args[0] == "xsettingsd" for p in self.processes) else 0
 
 
-def configure(world):
-    global serial
-    serial += 1
-    folder = temporary / ("session-" + str(serial))
+counter = 0
+
+
+def exercise(world, error=False, prepare=None, agent=True):
+    global counter
+    counter += 1
+    folder = temporary / ("session-" + str(counter))
     folder.mkdir(mode=0o700)
+    data = folder / "data"
+    data.mkdir()
+    for name in ("dunstrc", "picom.conf", "rofi.rasi", "themes.json"):
+        (data / name).write_text("synthetic")
     runtime = folder / "runtime"
     runtime.mkdir(mode=0o700)
-    os.environ.clear()
-    os.environ.update(HOME=str(folder), XDG_RUNTIME_DIR=str(runtime),
-                      XDG_CACHE_HOME=str(folder / "cache"), DISPLAY=":synthetic",
-                      XDG_SESSION_TYPE="x11", DBUS_SESSION_BUS_ADDRESS="mock:bus",
-                      SSH_AUTH_SOCK="/synthetic/foreign-agent")
-    subprocess.run, subprocess.Popen = world.run, world.popen
-    os.killpg, signal.signal = world.kill, world.signal
-    Path.is_socket = lambda path: world.agent and path == runtime / "gcr/ssh"
-    module.time = types.SimpleNamespace(sleep=world.sleep,
-                                       strftime=lambda format: clockvalue.strftime(format))
-    return runtime
-
-
-def exercise(world, failure=False, setup=None):
-    runtime = configure(world)
-    if setup:
-        setup(runtime)
-    try:
-        module.run()
-        assert not failure, "expected session failure"
-    except (RuntimeError, OSError, KeyError, subprocess.SubprocessError):
-        assert failure, "unexpected session failure"
-    assert {p.pid for p in world.processes} == {pid for pid, sig in world.kills}
-    assert all(handler == signal.SIG_DFL for handler in world.handlers.values())
-    return runtime
-
-
-try:
-    world = World()
-    exercise(world)
-    spawned = [p.args[0] for p in world.processes]
-    assert spawned[0].endswith("/dwm")
-    assert spawned[1:-1] == ["dunst", "picom", "lxqt-policykit-agent", "snixembed", "cbatticon", "pasystray", "nm-applet", "copyq", "xss-lock"]
-    assert any(call[0] == "xprop" for call in world.calls)
-    assert not any(call[0] == "xrandr" for call in world.calls)
-    assert spawned[-1].endswith("/wm-displays")
-    assert world.processes[-1].args[1:] == ["--watch"]
-    assert world.processes[-1].environment["SSH_AUTH_SOCK"] == "/synthetic/foreign-agent"
-    assert "lxqt-config-monitor" not in inventory
-    battery = next(p for p in world.processes if p.args[0] == "cbatticon")
-    volume = next(p for p in world.processes if p.args[0] == "pasystray")
-    assert battery.args == ["cbatticon"]
-    assert volume.args == ["pasystray", "--notify=none", "--volume-max=100"]
-    assert volume.environment["PULSE_CLIENTCONFIG"] == str(module.DATA / "pulse-client.conf")
-    assert all("PULSE_CLIENTCONFIG" not in p.environment for p in world.processes if p is not volume)
-    assert "autospawn = no" in (module.DATA / "pulse-client.conf").read_text()
-    assert "command\tcbatticon\tcbatticon\t/usr/bin/cbatticon\n" in inventory
-    assert "command\tpasystray\tpasystray\t/usr/bin/pasystray\n" in inventory
-    assert not any(c[0] == "systemctl" for c in world.calls)
-    locker = next(p for p in world.processes if p.args[0] == "xss-lock")
-    assert locker.args == ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"]
-    assert ["xset", "s", "600", "600"] in world.calls
-    assert ["xsetroot", "-solid", "#f6f5f4", "-name", "2026-10-20 03:04:05"] in world.calls
-    assert ["xsetroot", "-name", "2026-10-20 03:04:05"] in world.calls
-    assert 1 in world.sleeps and 2 not in world.sleeps
-    assert ["setxkbmap", "-layout", "es", "-variant", ""] in world.calls
-    assert not any(c[0] in ("loginctl", "powerdevil", "pactl", "wpctl") for c in world.calls)
-
-    for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
-        world = World()
-        world.interrupt = sig
-        exercise(world)
-    world = World()
-    world.fail_command = "setxkbmap"
-    exercise(world, failure=True)
-    assert not world.processes and not any(call[0] == "systemctl" for call in world.calls)
-
-    for field, value in (("dead", "lxqt-policykit-agent"),
-                         ("fail_spawn", str(root / "scripts/dwm")), ("fail_spawn", "nm-applet"),
-                         ("fail_command", "xprop"), ("fail_command", "xsetroot"),
-                         ("dead", str(root / "scripts/wm-displays")),
-                         ("fail_spawn", str(root / "scripts/wm-displays")), ("wm_code", 2),
-                         ("foreign", True), ("existing_wm", True)):
-        world = World()
-        setattr(world, field, value)
-        exercise(world, failure=True)
-    for name in ("cbatticon", "pasystray"):
-        world = World()
-        world.dead = name
-        exercise(world)
-        assert sum(p.args[0] == name for p in world.processes) == 1
-        world = World()
-        world.fail_spawn = name
-        exercise(world, failure=True)
-
-    world = World()
-    world.stubborn = True
-    exercise(world)
-    assert any(sig == signal.SIGKILL for pid, sig in world.kills)
-
-    world = World()
-    world.secret = False
-    exercise(world, setup=lambda runtime: os.environ.pop("SSH_AUTH_SOCK"))
-    assert world.processes[-1].environment["SSH_AUTH_SOCK"].endswith("/gcr/ssh")
-    assert ["gnome-keyring-daemon", "--start", "--components=secrets"] in world.calls
-
-    world = World()
-    world.no_agent = True
-    exercise(world, failure=True, setup=lambda runtime: os.environ.pop("SSH_AUTH_SOCK"))
-    world = World()
-    world.secret = False
-    world.no_secrets = True
-    exercise(world, failure=True)
-
-    for variable in ("DISPLAY", "DBUS_SESSION_BUS_ADDRESS"):
-        exercise(World(), failure=True, setup=lambda runtime, key=variable: os.environ.pop(key))
-    exercise(World(), failure=True, setup=lambda runtime: runtime.chmod(0o755))
-    world = World()
-    runtime = configure(world)
-    key = hashlib.sha256(os.environ["DISPLAY"].encode()).hexdigest()[:16]
-    directory = runtime / ("wm-" + key)
-    directory.mkdir(mode=0o700)
-    with (directory / "session.lock").open("a") as held:
-        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    environment = dict(XDG_RUNTIME_DIR=str(runtime), XDG_CACHE_HOME=str(folder / "cache"),
+                       HOME=str(folder), DISPLAY=":synthetic", XDG_SESSION_TYPE="x11",
+                       DBUS_SESSION_BUS_ADDRESS="mock:bus", XDG_SESSION_ID="synthetic")
+    if agent:
+        environment["SSH_AUTH_SOCK"] = "/synthetic/agent"
+    if prepare:
+        prepare(data, environment)
+    with patch.dict(os.environ, environment, clear=True), patch.object(module, "DATA", data), \
+         patch.object(subprocess, "run", side_effect=world.run), patch.object(subprocess, "Popen", side_effect=world.popen), \
+         patch.object(os, "killpg", side_effect=world.kill), patch.object(signal, "signal", side_effect=world.handler), \
+         patch.object(module.time, "sleep", side_effect=world.sleep), patch.object(module.time, "monotonic", side_effect=world.monotonic), \
+         patch.object(module, "xsettings_owner", side_effect=world.owner), \
+         patch.object(Path, "is_socket", autospec=True, side_effect=lambda path: path.name == "ssh"):
         try:
             module.run()
-            raise AssertionError("duplicate DISPLAY admitted")
-        except RuntimeError:
-            pass
-    assert not world.processes
+            assert not error, "expected failure"
+        except (RuntimeError, OSError, KeyError, ValueError):
+            assert error, "unexpected failure"
+    assert {p.pid for p in world.processes} == {pid for pid, sig in world.kills}
+    assert all(value == signal.SIG_DFL for value in world.handlers.values())
+    return folder
 
-    # Missing defaults fail before any commands or children, without touching sources.
-    data = module.DATA
-    module.DATA = temporary / "missing-picom-config"
-    module.DATA.mkdir()
-    (module.DATA / "dunstrc").write_text("synthetic")
-    try:
-        world = World()
-        exercise(world, failure=True)
-        assert not world.calls and not world.processes
-    finally:
-        module.DATA = data
 
-    module.DATA = temporary / "missing-pulse-config"
-    module.DATA.mkdir()
-    for config in ("dunstrc", "picom.conf"):
-        (module.DATA / config).write_text("synthetic")
-    try:
-        world = World()
-        exercise(world, failure=True)
-        assert not world.calls and not world.processes
-    finally:
-        module.DATA = data
-
-    # Stale, foreign and malformed readiness must never start tray applets.
-    for output in ("_WM_SYSTRAY: not found", "_WM_SYSTRAY(CARDINAL) = 1, 50",
-                   "_WM_SYSTRAY(CARDINAL) = 900000, 0", "_WM_SYSTRAY(STRING) = 900000, 50"):
-        world = World()
-        world.tray_output = output
-        world.wm_lifetime = 1000
-        exercise(world, failure=True)
-        assert len(world.processes) == 1
-        assert sum(call[0] == "xprop" for call in world.calls) == 50
+world = World()
+folder = exercise(world)
+spawned = [Path(p.args[0]).name for p in world.processes]
+assert spawned == ["xsettingsd", "dwm", "dunst", "picom", "lxqt-policykit-agent", "snixembed", "dwmblocks",
+                   "nm-applet", "copyq", "xss-lock", "xfce4-power-manager", "wm-displays"]
+assert world.processes[-2].args == ["xfce4-power-manager"]
+assert world.processes[-1].args[1:] == ["--watch"]
+assert world.processes[-3].args == ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"]
+assert [pid for pid, sig in world.kills] == [p.pid for p in reversed(world.processes)]
+assert not any("power-auto" in p.args or "xfce4-screensaver" in p.args for p in world.processes)
+setters = [argv for argv in world.calls if argv[0] == "xfconf-query" and "--create" in argv]
+assert len(setters) == 4 and not any("profile-on-" in " ".join(argv) for argv in setters)
+assert any("/general/LockCommand" in argv and argv[-1] == "wm-lock" for argv in setters)
+assert any("/xfce4-power-manager/handle-brightness-keys" in argv and argv[-1] == "false" for argv in setters)
+assert not any(argv[0] == "systemctl" for argv in world.calls)
+for mode in ("failure", "missing"):
     world = World()
-    world.tray_timeout = True
-    exercise(world, failure=True)
-    assert len(world.processes) == 1
-    world = World()
-    world.tray_code = 1
-    world.wm_lifetime = 1000
-    exercise(world, failure=True)
-    assert len(world.processes) == 1
-    # An early dwm exit stops readiness before starting any applets.
-    world = World()
-    world.tray_output = "not ready"
-    world.wm_lifetime = 0
-    exercise(world, failure=True)
-    assert len(world.processes) == 1 and not any(call[0] == "xprop" for call in world.calls)
-    clockvalue = datetime(2026, 10, 20, 23, 59, 59)
-    world = World()
+    if mode == "failure":
+        world.wallpaper_status = 1
+    else:
+        world.fail_command = "wm-wallpaper"
     exercise(world)
-    assert ["xsetroot", "-name", "2026-10-20 23:59:59"] in world.calls
-    print("PASS: native tray readiness, clock, startup, DISPLAY lock, cleanup and agents (all commands mocked)")
-finally:
-    (subprocess.run, subprocess.Popen, os.killpg, signal.signal,
-     module.time, Path.is_socket) = original
-    os.environ.clear()
-    os.environ.update(environment)
+    assert world.processes[-1].args[1:] == ["--watch"]
+world = World()
+world.pref_exists = False
+exercise(world)
+setters = [argv for argv in world.calls if "--create" in argv]
+assert len(setters) == 6 and setters[-2][-1] == "performance" and setters[-1][-1] == "balanced"
+for name in ("xfce4-power-manager", "xss-lock", "xsettingsd", "dunst", "snixembed"):
+    world = World()
+    world.exit_child = name
+    exercise(world, error=True)
+    if name == "xss-lock":
+        assert not any(argv[0] == "xfconf-query" for argv in world.calls)
+        assert not any(p.args[0] == "xfce4-power-manager" for p in world.processes)
+for attribute in ("bad_inhibitor", "bad_bus", "bad_inhibitor_reply"):
+    world = World()
+    setattr(world, attribute, True)
+    exercise(world, error=True)
+    assert not any(argv[0] == "xfconf-query" for argv in world.calls)
+    assert not any(p.args[0] == "xfce4-power-manager" for p in world.processes)
+for name in ("xfconf-query", "wm-appearance", "setxkbmap", "wm-keyboard"):
+    world = World()
+    world.fail_command = name
+    exercise(world, error=True)
+    if name in ("setxkbmap", "wm-keyboard"):
+        assert not world.processes
+for name in ("org.freedesktop.Notifications", "org.xfce.PowerManager", "org.freedesktop.PowerManagement",
+             "org.kde.Solid.PowerManagement", "XSettings"):
+    world = World()
+    world.conflict = name
+    exercise(world, error=True)
+    assert not world.processes
+for version in ("4.18.0", "unreadable"):
+    world = World(); world.version = version
+    exercise(world, error=True)
+    assert not world.processes
+for missing in ("dunstrc", "picom.conf", "themes.json", "rofi.rasi"):
+    world = World()
+    exercise(world, error=True, prepare=lambda data, env: (data / missing).unlink())
+    assert not world.processes
+for variable in ("DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_SESSION_ID", "XDG_RUNTIME_DIR"):
+    world = World()
+    exercise(world, error=True, prepare=lambda data, env: env.pop(variable))
+    assert not world.processes
+world = World()
+world.slow_child = "xfce4-power-manager"
+exercise(world)
+assert any(sig == signal.SIGKILL for pid, sig in world.kills)
+world = World()
+world.late_child = "xfce4-power-manager"
+exercise(world, error=True)
+for attr in ("bad_tray", "bad_ownership"):
+    world = World()
+    setattr(world, attr, True)
+    exercise(world, error=True)
+    assert [Path(p.args[0]).name for p in world.processes] == ["xsettingsd", "dwm"]
+world = World()
+world.secrets = False
+exercise(world, agent=False)
+assert any(argv[0] == "gnome-keyring-daemon" for argv in world.calls)
+assert any("gcr-ssh-agent.socket" in argv for argv in world.calls)
+key = hashlib.sha256(b":synthetic").hexdigest()[:16]
+for kind in ("symlink", "hardlink", "permissions", "duplicate"):
+    handles = []
+    def unsafe(data, env):
+        directory = Path(env["XDG_RUNTIME_DIR"]) / ("wm-" + key)
+        directory.mkdir(mode=0o700)
+        lock = directory / "session.lock"
+        sentinel = data.parent / "sentinel"
+        sentinel.write_text("untouched")
+        sentinel.chmod(0o600)
+        if kind == "symlink":
+            lock.symlink_to(sentinel)
+        elif kind == "hardlink":
+            cache = Path(env["XDG_CACHE_HOME"]) / "wm"
+            cache.mkdir(parents=True, mode=0o700)
+            os.link(sentinel, cache / ("session-" + key + ".log"))
+        elif kind == "permissions":
+            directory.chmod(0o755)
+        else:
+            handle = lock.open("w")
+            lock.chmod(0o600)
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            handles.append(handle)
+    world = World()
+    folder = exercise(world, error=True, prepare=unsafe)
+    for handle in handles:
+        handle.close()
+    assert not world.processes and (folder / "sentinel").read_text() == "untouched"
+print("PASS: real supervisor order, xfconf defaults/integration, exclusive locker, failures, conflicts, private locks/logs and owned cleanup (all boundaries mocked)")

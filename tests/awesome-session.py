@@ -15,7 +15,9 @@ exec(compile(Path(module.__file__).read_text(), module.__file__, "exec"), module
 data = temporary / "awesome-session-data"
 (data / "awesome").mkdir(parents=True)
 (data / "awesome/rc.lua").write_text("-- synthetic\n")
-(data / "dunstrc").write_text("# synthetic\n")
+(data / "awesome/config").mkdir()
+(data / "awesome/config/themes.json").write_bytes((root / "awesome/config/themes.json").read_bytes())
+(data / "awesome-picom.conf").write_text("# synthetic\n")
 module.DATA = data
 
 
@@ -51,11 +53,23 @@ class World:
         self.bad_bus = self.bad_readiness = self.bad_config = False
         self.fail = self.dead = self.duplicate = self.interrupt = None
         self.wm_code = 0
+        self.notification = "own"
+        self.clock = 0
+
+    def monotonic(self):
+        self.clock += 0.1
+        return self.clock
 
     def run(self, argv, **kwargs):
         self.calls.append(argv)
         name = argv[0]
-        assert kwargs["timeout"] == (1 if name in ("wmctrl", "awesome-client") and self.processes else 20)
+        pid_query = name == "gdbus" and argv[-2].endswith("GetConnectionUnixProcessID")
+        if name == "dbus-send":
+            assert kwargs["timeout"] == 2
+        elif name == "gdbus" and argv[-1] == "org.kde.StatusNotifierWatcher" and self.processes:
+            assert kwargs["timeout"] == 1
+        else:
+            assert kwargs["timeout"] == (1 if pid_query or name == "wmctrl" and self.processes else 20)
         if name == self.fail:
             raise OSError("synthetic command failure")
         code, output = 0, ""
@@ -63,11 +77,11 @@ class World:
             if not self.processes:
                 code = 0 if self.existing_wm else 1
             else:
-                wm = self.processes[0]
+                wm = next(p for p in self.processes if p.args[0] == "awesome")
                 pid = wm.pid + 1 if self.bad_readiness else wm.pid
                 output = "Name: awesome\nClass: N/A\nPID: {}\n".format(pid)
-        elif name == "awesome-client":
-            assert argv == [name, "return wm_ready == true"]
+        elif name == "dbus-send":
+            assert argv[-1] == "string:return wm_ready == true"
             output = "boolean false" if self.bad_config else "boolean true"
         elif name == "pgrep":
             assert argv[1:4] == ["-u", str(os.getuid()), "-x"]
@@ -75,10 +89,20 @@ class World:
         elif name == "gdbus":
             bus = argv[-1]
             assert bus in ("org.freedesktop.secrets", "org.awesomewm.awful", "org.freedesktop.Notifications", "org.kde.StatusNotifierWatcher")
-            executable = "dunst" if bus == "org.freedesktop.Notifications" else "snixembed"
-            owned = self.secret if bus == "org.freedesktop.secrets" else (
-                self.foreign or any(p.args[0] == executable for p in self.processes))
-            output = "invalid" if self.bad_bus else ("(true,)" if owned else "(false,)")
+            if pid_query:
+                assert self.processes and bus == "org.freedesktop.Notifications"
+                if self.notification == "missing":
+                    code = 1
+                elif self.notification == "invalid":
+                    output = "invalid"
+                else:
+                    wm = next(p for p in self.processes if p.args[0] == "awesome")
+                    output = "(uint32 {},)".format(wm.pid + (self.notification == "foreign"))
+            else:
+                owned = self.secret if bus == "org.freedesktop.secrets" else (
+                    self.foreign or bus == "org.kde.StatusNotifierWatcher" and
+                    any(p.args[0] == "snixembed" for p in self.processes))
+                output = "invalid" if self.bad_bus else ("(true,)" if owned else "(false,)")
         elif name == "systemctl":
             assert argv in ([name, "--user", "start", "gnome-keyring-daemon.socket"],
                             [name, "--user", "start", "gcr-ssh-agent.socket"])
@@ -87,13 +111,11 @@ class World:
         elif name == "gnome-keyring-daemon":
             assert argv == [name, "--start", "--components=secrets"]
             self.secret = not self.no_secret
-        elif name == "xsetroot":
-            assert argv == [name, "-solid", "#f6f5f4"]
         elif name == "xset":
             assert argv == [name, "s", "600", "600"]
         else:
             raise AssertionError(("unmocked command", argv))
-        return types.SimpleNamespace(returncode=code, stdout=output)
+        return types.SimpleNamespace(returncode=code, stdout=output, stderr="")
 
     def popen(self, argv, **kwargs):
         assert kwargs == dict(stdin=subprocess.DEVNULL, stdout=kwargs["stdout"],
@@ -117,6 +139,7 @@ class World:
 
 
 original = (subprocess.run, subprocess.Popen, os.killpg, signal.signal, module.time, Path.is_socket)
+original_settings = module.xsettings_owner, module.resources
 environment = dict(os.environ)
 serial = 0
 
@@ -136,7 +159,10 @@ def exercise(world, failure=False, setup=None, inherited=True):
         os.environ["SSH_AUTH_SOCK"] = "/synthetic/foreign-agent"
     subprocess.run, subprocess.Popen = world.run, world.popen
     os.killpg, signal.signal = world.kill, world.signal
-    module.time = types.SimpleNamespace(sleep=world.sleep)
+    module.time = types.SimpleNamespace(sleep=world.sleep, monotonic=world.monotonic,
+                                        strftime=original[4].strftime, gmtime=original[4].gmtime)
+    module.xsettings_owner = lambda: 99 if any(p.args[0] == "xsettingsd" for p in world.processes) else 0
+    module.resources = lambda profile: ("Adwaita", "Adwaita")
     Path.is_socket = lambda path: world.agent and path == runtime / "gcr/ssh"
     cleanup = setup(folder, runtime) if setup else None
     try:
@@ -156,12 +182,14 @@ def exercise(world, failure=False, setup=None, inherited=True):
 try:
     world = World()
     folder = exercise(world)
-    assert [p.args[0] for p in world.processes] == ["awesome", "dunst", "lxqt-policykit-agent", "snixembed", "nm-applet", "copyq", "xss-lock"]
-    assert world.processes[0].args == ["awesome", "-c", str(data / "awesome/rc.lua")]
+    assert [p.args[0] for p in world.processes] == ["xsettingsd", "awesome", "picom", "lxqt-policykit-agent", "snixembed", "nm-applet", "copyq", "xss-lock"]
+    assert world.processes[1].args == ["awesome", "-c", str(data / "awesome/rc.lua")]
+    assert world.processes[2].args == ["picom", "--config", str(data / "awesome-picom.conf")]
+    assert world.processes[1].environment["WM_AWESOME_XSETTINGSD_PID"] == str(world.processes[0].pid)
     assert world.processes[-1].args == ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"]
     assert all(p.environment["SSH_AUTH_SOCK"] == "/synthetic/foreign-agent" for p in world.processes)
     assert not any(c[0] == "systemctl" for c in world.calls)
-    forbidden = {"picom", "dwm", "dwmblocks", "wm-status", "wm-displays", "wm-keyboard", "setxkbmap", "xprop", "cbatticon", "pasystray"}
+    forbidden = {"dunst", "xsetroot", "dwm", "dwmblocks", "wm-status", "wm-displays", "wm-keyboard", "setxkbmap", "xprop", "cbatticon", "pasystray"}
     assert not forbidden.intersection(c[0] for c in world.calls + [p.args for p in world.processes])
     assert [pid for pid, sig in world.kills] == [p.pid for p in reversed(world.processes)]
     assert (folder / "cache/wm").stat().st_mode & 0o777 == 0o700
@@ -173,15 +201,20 @@ try:
         world = World()
         setattr(world, attr, value)
         exercise(world, failure=True)
-    for name in ("awesome", "dunst", "lxqt-policykit-agent", "snixembed", "nm-applet", "copyq", "xss-lock", "xset"):
+    for state in ("missing", "invalid", "foreign"):
+        world = World()
+        world.notification = state
+        exercise(world, failure=True)
+        assert [p.args[0] for p in world.processes] == ["xsettingsd", "awesome"]
+    for name in ("xsettingsd", "awesome", "picom", "lxqt-policykit-agent", "snixembed", "nm-applet", "copyq", "xss-lock"):
         world = World()
         world.fail = name
         exercise(world, failure=True)
-    for name in ("awesome", "dunst", "lxqt-policykit-agent", "snixembed", "xss-lock"):
+    for name in ("xsettingsd", "awesome", "lxqt-policykit-agent", "snixembed", "xss-lock"):
         world = World()
         world.dead = name
         exercise(world, failure=True)
-    for name in ("nm-applet", "copyq"):
+    for name in ("picom", "nm-applet", "copyq"):
         world = World()
         world.dead = name
         exercise(world)
@@ -197,13 +230,13 @@ try:
     world.secret = False
     exercise(world, inherited=False)
     assert world.agent and world.secret
-    assert all(p.environment["SSH_AUTH_SOCK"].endswith("/gcr/ssh") for p in world.processes)
+    assert all(p.environment["SSH_AUTH_SOCK"].endswith("/gcr/ssh") for p in world.processes if p.args[0] != "xsettingsd")
     for attribute in ("no_agent", "no_secret"):
         world = World()
         world.secret = False
         setattr(world, attribute, True)
         exercise(world, failure=True, inherited=False)
-        assert not world.processes
+        assert [p.args[0] for p in world.processes] == ["xsettingsd"]
     for name in ("DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"):
         world = World()
         exercise(world, failure=True, setup=lambda folder, runtime, name=name: os.environ.pop(name) and None)
@@ -214,6 +247,7 @@ try:
         directory = runtime / ("wm-" + key)
         directory.mkdir(mode=0o700)
         lock = (directory / "session.lock").open("w")
+        (directory / "session.lock").chmod(0o600)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return lock.close
 
@@ -247,6 +281,7 @@ try:
     assert not world.processes
 finally:
     subprocess.run, subprocess.Popen, os.killpg, signal.signal, module.time, Path.is_socket = original
+    module.xsettings_owner, module.resources = original_settings
     os.environ.clear()
     os.environ.update(environment)
 
@@ -262,5 +297,5 @@ result = subprocess.run(["/bin/sh", str(wrapper), "argument with spaces"],
                         env={"PATH": "/usr/bin:/bin", "HOME": str(temporary),
                              "KDE_FULL_SESSION": "true", "QT_QUICK_CONTROLS_CONF": "foreign"},
                         text=True, capture_output=True, check=True, timeout=5)
-assert result.stdout.splitlines() == ["awesome", "awesome", "awesome", "Adwaita", "unset", "unset", "argument with spaces"]
+assert result.stdout.splitlines() == ["awesome", "awesome", "awesome", "", "unset", "unset", "argument with spaces"]
 print("PASS: Awesome session isolation, readiness, failures, locks, agents and own cleanup")
