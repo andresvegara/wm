@@ -91,6 +91,8 @@ Filenames use `dwm-<feature>-YYYYMMDD-bca7cf2.diff`. The order is:
 | activewindowformat | Reject malformed external activation without restoring or focusing. |
 | taskicons | Bounded EWMH application icons, per-client cache and TrueColor alpha rendering. |
 | taskiconsdocs | Document icon sources, text fallback and dependency limits. |
+| edgepreview | Drag-edge halves/quarters/maximize with four-window outline and ICCCM eligibility. |
+| edgepreviewdocs | Document zones, cancellation, hints and unchanged keyboard placement. |
 
 These are ordered patches, not interchangeable standalone patches.
 Titlebaroption requires titlebarconfig and the earlier titlebar patch; taskbar
@@ -127,6 +129,14 @@ The taskbar is original project code, informed by the behavior described in the
 from that patch is copied or required. Rofi is already a session dependency.
 Applications remain standard desktop entries and extra actions use the documented
 wm/dwm/menu.json file. No additional panel or menu dependency is introduced.
+Edgepreview follows taskiconsdocs and reuses Ewmhmaximize placement and Csdmove's
+shared drag lifecycle. Physical monitor edges select targets in the workarea;
+four temporary override-redirect windows show the effective size-hinted outline.
+Only left-button release commits. Cancellation, topology changes, destruction
+and X errors clean up without placement. Targets that cannot fit ICCCM minimums
+are omitted without changing keyboard placement. Original code; no compositor
+or new library. Edgepreviewdocs contains documentation only.
+
 Taskicons follows activewindowformat and adds original `_NET_WM_ICON` parsing,
 cache and rendering to the taskbar. It reads at most 262146 CARDINALs, bounds
 source dimensions to 512px and displays at most 16px with preserved aspect ratio.

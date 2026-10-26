@@ -54,7 +54,53 @@ test_drw_icon(Drw *drawing, int x, int y, const DrwIcon *icon, int invert)
 	return !iconfallback;
 }
 
+static XSizeHints normalhints;
+static int normalhintspresent;
+
+#define XCreateWindow tray_createwindow
+#define XDestroyWindow tray_destroywindow
 #include "dwm-tray.c"
+#undef XCreateWindow
+#undef XDestroyWindow
+
+static int previewcreated, previewdestroyed, previewfailat, previewasyncfail;
+static int previewlive[4];
+
+Window
+XCreateWindow(Display *display, Window parent, int x, int y,
+	unsigned int w, unsigned int h, unsigned int border, int depth,
+	unsigned int class, Visual *visual, unsigned long mask, XSetWindowAttributes *wa)
+{
+	int i;
+
+	if (movingwin && (mask & CWBackPixel)) {
+		assert(parent == root && wa->override_redirect && class == InputOutput);
+		assert(!(mask & CWEventMask) && !border);
+		if (++previewcreated == previewfailat)
+			return None;
+		for (i = 0; i < 4; i++)
+			if (!previewlive[i]) {
+				previewlive[i] = 1;
+				return 60 + i;
+			}
+		assert(!"more than four preview windows");
+	}
+	return tray_createwindow(display, parent, x, y, w, h, border, depth,
+		class, visual, mask, wa);
+}
+
+int
+XDestroyWindow(Display *display, Window win)
+{
+	if (win >= 60 && win < 64) {
+		assert(previewlive[win - 60]);
+		previewlive[win - 60] = 0;
+		traymapped[win] = 0;
+		previewdestroyed++;
+		return 1;
+	}
+	return tray_destroywindow(display, win);
+}
 
 int
 XGetWindowProperty(Display *display, Window w, Atom property, long offset,
@@ -364,6 +410,11 @@ XMoveWindow(Display *display, Window window, int x, int y)
 int
 XSync(Display *display, Bool discard)
 {
+	if (movingwin && previewcreated && previewasyncfail) {
+		XErrorEvent error = { .error_code = BadAlloc, .request_code = X_CreateWindow };
+		previewasyncfail = 0;
+		xerror(display, &error);
+	}
 	return 1;
 }
 
@@ -398,7 +449,11 @@ XGetTransientForHint(Display *display, Window window, Window *parent)
 Status
 XGetWMNormalHints(Display *display, Window window, XSizeHints *hints, long *supplied)
 {
-	return 0;
+	if (!normalhintspresent)
+		return 0;
+	*hints = normalhints;
+	*supplied = normalhints.flags;
+	return 1;
 }
 
 Status
@@ -511,6 +566,8 @@ reset(void)
 	setuppropertyvalue = NULL;
 	setuppropertyformat = 8;
 	setuppropertytype = XA_STRING;
+	normalhintspresent = 0;
+	normalhints = (XSizeHints){0};
 	memset(ungrabs, 0, sizeof ungrabs);
 	plainclickgrabs = 0;
 	assert(!switchwin && !switchitems);
@@ -522,6 +579,9 @@ reset(void)
 	stateformat = 32;
 	stateextra = 0;
 	assert(!movingwin);
+	for (i = 0; i < 4; i++)
+		assert(!previewlive[i]);
+	previewcreated = previewdestroyed = previewfailat = previewasyncfail = 0;
 	moveeventcount = moveeventindex = 0;
 	putbackevents = pointergrabs = pointerungrabs = pointergrabfail = pointerwarps = 0;
 	pointerok = True;
@@ -859,6 +919,227 @@ testclientdrag(void)
 }
 
 static void
+testdragpreview(void)
+{
+	static const struct { int x, y; unsigned int zone; } zones[] = {
+		{-1000, 40, PlaceLeft|PlaceTop}, {-500, 40, PlaceMax},
+		{0, 40, PlaceRight|PlaceTop}, {-1000, 400, PlaceLeft},
+		{0, 400, PlaceRight}, {-1000, 838, PlaceLeft|PlaceBottom},
+		{0, 838, PlaceRight|PlaceBottom}, {-500, 838, 0},
+		{-500, 400, 0}, {-1001, 400, 0}, {1, 400, 0}
+	};
+	XEvent request, stop;
+	Monitor *target;
+	Client *allocated;
+	int i, j, x, y, w, h;
+
+	for (i = 0; i < (int)LENGTH(zones); i++) {
+		reset();
+		/* The physical top edge lies above the usable area/bar. */
+		monitor.wy += bh;
+		monitor.wh -= bh;
+		assert(dragzone(zones[i].x, zones[i].y, &target) == zones[i].zone);
+		request = dragrequest();
+		dragmotion(zones[i].x, zones[i].y);
+		if (i % 2) movemouse(NULL); else clientmessage(&request);
+		assert(first.placement == zones[i].zone);
+		assert(previewcreated == (zones[i].zone ? 4 : 0));
+		assert(previewcreated == previewdestroyed && pointerungrabs == 1);
+		if (!zones[i].zone)
+			continue;
+		placementrect(&monitor, zones[i].zone, &x, &y, &w, &h);
+		expectgeom(x, y, w - 2, h - 2);
+		assert(traypositions[60].x == x && traypositions[60].y == y);
+		assert(traypositions[60].width == w && traypositions[60].height == 2);
+		assert(traypositions[61].y == y + h - 2);
+		assert(traypositions[62].height == h && traypositions[63].x == x + w - 2);
+		assert(x >= monitor.wx && y >= monitor.wy);
+		assert(x + w <= monitor.wx + monitor.ww && y + h <= monitor.wy + monitor.wh);
+		assert(maxaxes(&first) == (zones[i].zone == PlaceMax ? PlaceMaxH|PlaceMaxV : 0));
+	}
+	/* A non-left release neither commits nor ends the drag; leaving clears it. */
+	reset();
+	request = dragrequest();
+	dragmotion(-1000, 400);
+	moveevents[3] = moveevents[1];
+	moveevents[2] = moveevents[0];
+	moveevents[2].xmotion.x_root = -500;
+	moveevents[2].xmotion.time = 200;
+	moveevents[1].xbutton.button = Button3;
+	moveeventcount = 4;
+	clientmessage(&request);
+	assert(!first.placement && moveeventindex == 4);
+	assert(previewcreated == 4 && previewdestroyed == 4);
+
+	for (i = 0; i < 10; i++) {
+		reset();
+		request = dragrequest();
+		dragmotion(-1000, 400);
+		stop = (XEvent){0};
+		switch (i) {
+		case 0:
+			stop = request;
+			stop.xclient.data.l[2] = 11;
+			break;
+		case 1:
+			stop.xconfigure.type = ConfigureNotify;
+			stop.xconfigure.window = root;
+			break;
+		case 2: case 3:
+			randractive = 1;
+			randrevent = 90;
+			stop.type = randrevent + (i == 2 ? RRNotify : RRScreenChangeNotify);
+			break;
+		case 4: case 5:
+			allocated = ecalloc(1, sizeof *allocated);
+			*allocated = first;
+			monitor.sel = monitor.clients = monitor.stack = allocated;
+			stop.type = i == 4 ? DestroyNotify : UnmapNotify;
+			if (i == 4) stop.xdestroywindow.window = first.win;
+			else stop.xunmap.window = first.win;
+			break;
+		case 6: case 7: case 8:
+			previewfailat = i - 5;
+			break;
+		case 9:
+			previewasyncfail = 1;
+			break;
+		}
+		if (i < 6) moveevents[1] = stop;
+		clientmessage(&request);
+		assert(!first.placement && !movingwin && pointerungrabs == 1);
+		for (j = 0; j < 4; j++) assert(!previewlive[j] && !traymapped[60 + j]);
+		assert(previewdestroyed == previewcreated - (previewfailat ? 1 : 0));
+	}
+	/* A target monitor is chosen by pointer, not the dragged window overlap. */
+	reset();
+	other = monitor;
+	other.mx = other.wx = 1;
+	other.my = other.wy = -500;
+	other.num = 1;
+	other.clients = other.stack = other.sel = NULL;
+	monitor.next = &other;
+	request = dragrequest();
+	dragmotion(500, -500);
+	clientmessage(&request);
+	assert(first.mon == &other && first.placement == PlaceMax);
+	expectgeom(other.wx, other.wy, other.ww - 2, other.wh - 2);
+	assert(first.floatw == 601 && first.floath == 401);
+	/* Fixed windows can move but cannot offer a target. */
+	reset();
+	first.isfixed = 1;
+	request = dragrequest();
+	dragmotion(-1000, 400);
+	clientmessage(&request);
+	assert(!first.placement && !previewcreated);
+	puts("PASS: drag zones, physical edges, workarea previews, release/cancel, topology, lifecycle and X resource cleanup (mock Xlib)");
+}
+
+static void
+testdraghints(void)
+{
+	static const struct { int x, y; unsigned int zone; } targets[] = {
+		{-1000, 400, PlaceLeft}, {-1000, 40, PlaceLeft|PlaceTop},
+		{-500, 40, PlaceMax}
+	};
+	XEvent request;
+	Client original;
+	int i, axis, x, y, w, h, rx, ry, rw, rh;
+
+	for (i = 0; i < (int)LENGTH(targets); i++) {
+		for (axis = 0; axis < 2; axis++) {
+			reset();
+			placementrect(&monitor, targets[i].zone, &x, &y, &w, &h);
+			first.minw = axis ? 0 : w - 1; /* One pixel beyond the inner target. */
+			first.minh = axis ? h - 1 : 0;
+			original = first;
+			assert(!dragrect(&first, &monitor, targets[i].zone, &rx, &ry, &rw, &rh));
+			assert(!memcmp(&first, &original, sizeof first));
+			request = dragrequest();
+			dragmotion(targets[i].x, targets[i].y);
+			clientmessage(&request);
+			assert(!first.placement && !previewcreated && !previewdestroyed);
+			assert(!maxaxes(&first) && pointerungrabs == 1 && !movingwin);
+			assert(first.w >= first.minw && first.h >= first.minh);
+			/* Keyboard placement retains its existing ICCCM policy. */
+			placeclient(&first, targets[i].zone);
+			assert(first.placement == targets[i].zone);
+			assert(first.w >= first.minw && first.h >= first.minh);
+		}
+		/* Exactly fitting minimums remain eligible. */
+		reset();
+		placementrect(&monitor, targets[i].zone, &x, &y, &w, &h);
+		first.minw = w - 2;
+		first.minh = h - 2;
+		assert(dragrect(&first, &monitor, targets[i].zone, &rx, &ry, &rw, &rh));
+		assert(rx == x && ry == y && rw == w && rh == h);
+		request = dragrequest();
+		dragmotion(targets[i].x, targets[i].y);
+		clientmessage(&request);
+		assert(first.placement == targets[i].zone && previewcreated == 4);
+		expectgeom(x, y, w - 2, h - 2);
+	}
+	for (i = 0; i < 4; i++) {
+		reset();
+		monitor.wy += bh;
+		monitor.wh -= bh;
+		first.minw = 100; first.minh = 80;
+		first.basew = first.baseh = 1;
+		first.incw = 20; first.inch = 10;
+		if (i == 1) {
+			first.maxw = 350; first.maxh = 250;
+		} else if (i == 2) {
+			first.mina = first.maxa = 1;
+		} else if (i == 3) {
+			th = 24;
+			first.titlebar = 50;
+		}
+		original = first;
+		assert(dragrect(&first, &monitor, PlaceLeft|PlaceTop, &x, &y, &w, &h));
+		assert(!memcmp(&first, &original, sizeof first));
+		request = dragrequest();
+		dragmotion(-1000, 40);
+		clientmessage(&request);
+		assert(first.placement == (PlaceLeft|PlaceTop));
+		expectgeom(x, y, w - 2, h - 2);
+		assert(traypositions[60].x == first.x && traypositions[60].y == first.y);
+		assert(traypositions[60].width == WIDTH(&first));
+		assert(traypositions[61].y == first.y + HEIGHT(&first) - 2);
+		assert(previewcreated == 4 && previewdestroyed == 4);
+	}
+	/* Target-monitor workarea, not the current larger monitor, decides eligibility. */
+	reset();
+	other = monitor;
+	other.mx = other.wx = 1;
+	other.mw = other.ww = 400;
+	other.num = 1;
+	other.clients = other.stack = other.sel = NULL;
+	monitor.next = &other;
+	first.minw = 300;
+	request = dragrequest();
+	dragmotion(1, 400);
+	clientmessage(&request);
+	assert(!first.placement && !previewcreated);
+	/* Hints can invalidate an already visible preview before button release. */
+	reset();
+	normalhintspresent = 1;
+	normalhints.flags = PMinSize;
+	normalhints.min_width = 700;
+	normalhints.min_height = 100;
+	request = dragrequest();
+	dragmotion(-1000, 400);
+	moveevents[2] = moveevents[1];
+	moveevents[1] = (XEvent){0};
+	moveevents[1].xproperty = (XPropertyEvent){ .type = PropertyNotify,
+		.window = first.win, .atom = XA_WM_NORMAL_HINTS, .state = PropertyNewValue };
+	moveeventcount = 3;
+	clientmessage(&request);
+	assert(!first.placement && first.minw == 700);
+	assert(previewcreated == 4 && previewdestroyed == 4 && pointerungrabs == 1);
+	puts("PASS: drag ICCCM minimum rejection, exact fit, effective preview hints, target workarea, hint changes and unchanged keyboard placement (mock Xlib)");
+}
+
+static void
 testclientresize(void)
 {
 	static const int geometry[2][8][4] = {
@@ -1064,6 +1345,12 @@ testclientresize(void)
 	clientmessage(&request);
 	expectgeom(-900, 100, 701, 481);
 	assert(first.isfloating);
+	reset();
+	request = dragrequest();
+	request.xclient.data.l[2] = 3;
+	dragmotion(-1000, 400);
+	clientmessage(&request);
+	assert(!previewcreated && !previewdestroyed && !first.placement);
 	puts("PASS: all application resize edges, hints/anchoring, fixed clients and lifecycle (mock Xlib)");
 }
 
@@ -1172,7 +1459,7 @@ testewmhmaximize(void)
 		maxrequest(1, h, v);
 		event = dragrequest();
 		if (i) event.xclient.data.l[2] = 4;
-		dragmotion(pointerx - 100, pointery - 80);
+		dragmotion(pointerx - 100, pointery + 80); /* Stay outside drag placement zones. */
 		clientmessage(&event);
 		assert(!first.placement && !hasstate(h) && !hasstate(v));
 	}
@@ -2276,6 +2563,8 @@ main(void)
 	testplacement();
 	testmaximize();
 	testclientdrag();
+	testdragpreview();
+	testdraghints();
 	testclientresize();
 	testewmhmaximize();
 	testlimits();
