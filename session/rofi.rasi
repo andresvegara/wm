@@ -1,0 +1,13 @@
+* {
+    font: "Hack Nerd Font Mono 11";
+    background-color: #dcdcdc;
+    text-color: #3c3c3c;
+}
+window { width: 45%; border: 2px; border-color: #909090; padding: 12px; }
+mainbox { children: [ inputbar, message, listview ]; spacing: 8px; }
+inputbar { children: [ prompt, entry ]; spacing: 8px; }
+listview { lines: 14; scrollbar: true; }
+element { padding: 6px; spacing: 8px; }
+element selected { background-color: #7e9ebd; text-color: #f5f5f5; }
+element-icon { size: 24px; }
+element-text, element-icon { background-color: inherit; text-color: inherit; }

@@ -1,36 +1,20 @@
 #!/usr/bin/env python3
-# Labels are presentation only: execution always uses the selected object/argv.
+# Rofi owns applications/windows; session actions use explicit argv, never shell.
 import argparse
+import json
 import os
+from pathlib import Path
+import shlex
 import subprocess
 import sys
+import tempfile
 
-
-def label(text):
-    return "".join(c if c.isprintable() else "\\u{:04x}".format(ord(c)) for c in text)
-
-
-def apps():
-    import gi
-    gi.require_version("Gio", "2.0")
-    from gi.repository import Gio
-    return sorted((app for app in Gio.AppInfo.get_all() if app.should_show()),
-                  key=lambda app: (app.get_display_name().casefold(), app.get_id() or ""))
+from wm_session import choose as select, private_directory, read_private, rofi, write_private
 
 
 def choose(items, prompt, monitor=None):
-    command = ["dmenu", "-c", "-i", "-l", "18", "-p", prompt,
-               "-fn", "Hack Nerd Font Mono:size=11"]
-    if monitor is not None:
-        command += ["-m", monitor]
-    result = subprocess.run(command,
-                            input="\n".join(items) + "\n", stdout=subprocess.PIPE,
-                            text=True, encoding="utf-8")
-    if result.returncode:
-        return None
-    # Remove only dmenu's delimiter, not spaces belonging to a label.
-    selected = result.stdout.removesuffix("\n")
-    return selected if selected in items else None
+    # Rofi resolves the pointer monitor itself; dwm and Rofi indices may differ.
+    return select(items, prompt)
 
 
 def report(name, message):
@@ -42,21 +26,105 @@ def report(name, message):
 
 
 def actions():
-    return {
+    catalog = {
         "Pantallas": (["wm-displays"], False),
+        "Apariencia": (["wm-appearance"], False),
+        "Ejecutar comando": (["wm-command"], False),
+        "Energía": (["xfce4-power-manager-settings"], False),
+        "Notificaciones": (["wm-notifications"], False),
         "Red y VPN": (["nm-connection-editor"], False),
         "Contraseñas y claves SSH": (["seahorse"], False),
         "Sonido": (["pavucontrol"], False),
+        "CopyQ": (["copyq", "show"], False),
         "Estado de energía": (["alacritty", "-e", "watch", "-n", "5", "upower", "--dump"], False),
-        "Bloquear": (["xset", "s", "activate"], False),
+        "Bloquear": (["wm-lock"], False),
         "Suspender": (["systemctl", "suspend"], True),
         "Reiniciar": (["systemctl", "reboot"], True),
         "Apagar": (["systemctl", "poweroff"], True),
-        "Cerrar sesión": (["loginctl", "terminate-session", os.environ.get("XDG_SESSION_ID", "")], True),
+        "Cerrar sesión": (["loginctl", "terminate-session", "--", os.environ.get("XDG_SESSION_ID", "")], True),
     }
+    if awesome():
+        return catalog
+    catalog["Ayuda de atajos"] = (["wm-launcher", "--shortcuts"], False)
+    catalog["Fondo de pantalla"] = (["wm-wallpaper"], False)
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"))
+    path = config / "wm/dwm/menu.json"
+    try:
+        with path.open(encoding="utf-8") as source:
+            content = source.read(65537)
+    except FileNotFoundError:
+        return catalog
+    if len(content) > 65536:
+        raise ValueError("menu.json demasiado grande")
+    extra = json.loads(content)
+    if not isinstance(extra, dict):
+        raise ValueError("menu.json debe contener un objeto de acciones")
+    for name, action in extra.items():
+        if (not name or name != name.strip() or len(name) > 128 or not name.isprintable() or name.startswith("-")
+                or name in catalog or not isinstance(action, dict)
+                or set(action) - {"argv", "confirm"}):
+            raise ValueError("acción inválida o duplicada en menu.json")
+        argv = action.get("argv")
+        confirm = action.get("confirm", False)
+        if (not isinstance(argv, list) or not argv
+                or any(not isinstance(arg, str) or not arg or "\0" in arg for arg in argv)
+                or type(confirm) is not bool):
+            raise ValueError("argv o confirm inválidos en menu.json")
+        catalog[name] = (argv, confirm)
+    return catalog
+
+
+def shortcuts():
+    return [
+        "Super+F1 — Ayuda de atajos (seleccionar una línea solo cierra esta ayuda)",
+        "Super+Espacio — Aplicaciones, ventanas y acciones",
+        "Super+D — Ejecutar comando en terminal",
+        "Super+Escape / clic derecho en fondo — Menú de sesión",
+        "Super+Intro — Alacritty",
+        "Super+W / Super+Shift+W — Brave / Chromium",
+        "Super+E — Thunar",
+        "Super+Shift+M — Spotify",
+        "Super+Shift+C — CopyQ",
+        "Alt+Tab / Alt+Shift+Tab — Ventanas por uso reciente, todos los monitores",
+        "Soltar Alt / Intro — Activar selección; Escape — Cancelar",
+        "Inicio — Aplicaciones, ventanas y acciones de sesión",
+        "Barra — Clic para activar/restaurar; clic en activa para minimizar",
+        "Super+H — Minimizar; barra, Alt+Tab o selector de ventanas — Recuperar",
+        "Super+T — Alternar siempre encima",
+        "Super+flechas — Mitades y cuartos; repetir libera el eje",
+        "Super+M — Maximizar/restaurar",
+        "Super+F — Fullscreen",
+        "Super+Ñ — Centrar",
+        "Super+Shift+izquierda/derecha — Mover a otro monitor",
+        "Super+Q / Ctrl+Q / Alt+F4 — Solicitar cierre normal",
+        "Super+arrastrar botón izquierdo/derecho — Mover/redimensionar",
+        "Super+Inicio / tecla reproducir — Pausar/reanudar",
+        "Super+Shift+RePág / Super+Shift+AvPág — Pista anterior/siguiente",
+        "Super+RePág / Super+AvPág / Super+Fin — Volumen +5% / -5% / silencio",
+        "Teclas multimedia y brillo — Controles habituales",
+        "Impr Pant — Flameshot",
+        "Super+L — Bloquear esta sesión",
+    ]
+
+
+def awesome():
+    return "awesome" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower().split(":")
+
+
+def native(name=None):
+    # These expressions contain constants from the fixed catalog, never user Lua.
+    expressions = {key: 'return wm_launcher_action("{}")'.format(key) for key in actions()}
+    expression = expressions[name] if name else "return wm_launcher()"
+    result = subprocess.run(["awesome-client", expression], text=True,
+                            capture_output=True, timeout=5)
+    if result.returncode or result.stdout.strip() != "boolean true":
+        report(name or "Aplicaciones", "El lanzador nativo de Awesome no está disponible")
 
 
 def execute_action(name, monitor=None):
+    if awesome():
+        native(name)
+        return
     command, confirm = actions()[name]
     if name == "Pantallas" and monitor is not None:
         command += ["-m", monitor]
@@ -72,40 +140,62 @@ def run():
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", dest="monitor")
     parser.add_argument("--action", choices=actions())
+    parser.add_argument("--rofi-actions", action="store_true")
+    parser.add_argument("--windows", action="store_true")
+    parser.add_argument("--start", action="store_true")
+    parser.add_argument("--shortcuts", action="store_true")
+    parser.add_argument("--session-menu", action="store_true")
+    parser.add_argument("selection", nargs="?")
     options = parser.parse_args()
+    if options.rofi_actions:
+        if os.environ.get("ROFI_RETV") == "0":
+            print("\0no-custom\x1ftrue")
+            print("\n".join(actions()))
+        elif os.environ.get("ROFI_RETV") == "1" and options.selection in actions():
+            # Let the caller dispatch after Rofi releases its keyboard grab.
+            write_private(Path(os.environ["WM_ROFI_ACTION_FILE"]), options.selection + "\n")
+        return
+    if awesome():
+        native(options.action)
+        return
+    if options.shortcuts:
+        choose(shortcuts(), "Atajos", options.monitor)
+        return
     if options.action:
         execute_action(options.action, options.monitor)
         return
-    entries = []
-    for app in apps():
-        entries.append(("Aplicación", app.get_display_name(), "app", app))
-    for name in actions():
-        entries.append(("Acción", name, "action", name))
-    rows = {"[{}] {} · {}".format(kind, label(name), i): (action, obj)
-            for i, (kind, name, action, obj) in enumerate(entries)}
-    selected = choose(rows, "Buscar", options.monitor)
-    if selected is None:
+    if options.session_menu:
+        selected = choose(actions(), "Sesión", options.monitor)
+        if selected:
+            execute_action(selected, options.monitor)
         return
-    action, obj = rows[selected]
-    if action == "app":
-        # GIO interprets Desktop Entry quoting/field codes/Terminal/activation.
-        from gi.repository import GLib
-        try:
-            launched = obj.launch([], None)
-        except GLib.Error as error:
-            print("wm-launcher: {}".format(error), file=sys.stderr)
-            launched = False
-        if not launched:
-            report(obj.get_display_name(), "No se pudo iniciar la aplicación; consulta el registro de sesión")
-            sys.exit(1)
+    if options.windows:
+        argv = rofi("-show", "window", "-show-icons")
     else:
-        execute_action(obj, options.monitor)
+        script = shlex.quote(str(Path(__file__).resolve())) + " --rofi-actions"
+        argv = rofi("-show", "combi", "-modi", "combi,Acciones:" + script,
+                    "-combi-modes", "drun,window,Acciones", "-show-icons", "-terminal", "alacritty")
+        if options.start:
+            argv += ["-theme-str", "window { location: southwest; anchor: southwest; "
+                     "width: 40%; x-offset: 0; y-offset: -32px; }"]
+    runtime = Path(os.environ.get("WM_DWM_RUNTIME") or os.environ["XDG_RUNTIME_DIR"])
+    private_directory(runtime)
+    with tempfile.TemporaryDirectory(prefix="rofi-", dir=runtime) as directory:
+        selection = Path(directory) / "action"
+        result = subprocess.run(argv, env=dict(os.environ, WM_ROFI_ACTION_FILE=str(selection)))
+        if result.returncode not in (0, 1):
+            raise RuntimeError("Rofi terminó con código " + str(result.returncode))
+        selected = read_private(selection)
+        if result.returncode == 0 and selected is not None:
+            name = selected.strip()
+            if name not in actions():
+                raise ValueError("acción Rofi inválida")
+            execute_action(name, options.monitor)
 
 
 if __name__ == "__main__":
     try:
         run()
-    except (OSError, ValueError, KeyError, ImportError) as error:
-        report("lanzador", "No se pudo completar la acción; consulta el registro de sesión")
-        print("wm-launcher: {}".format(error), file=sys.stderr)
+    except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
+        report("lanzador", str(error))
         sys.exit(1)

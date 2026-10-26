@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # dmenu collects a command; only the terminal ever receives interactive input.
 import argparse
+import os
 import subprocess
 import sys
 
+from wm_session import rofi
+
 WRAPPER = '''/bin/sh -c "$1"
 code=$?
-if [ "$code" -ne 0 ]; then
-    printf '\\nEl comando terminó con código %s. Pulsa Enter para cerrar.' "$code"
-    IFS= read -r answer
-fi
+printf '\\nEl comando terminó con código %s. Pulsa Enter para cerrar.' "$code"
+IFS= read -r answer
 exit "$code"
 '''
 
@@ -18,16 +19,22 @@ def run():
     parser = argparse.ArgumentParser(description="Comandos interactivos desde dmenu")
     parser.add_argument("-m", dest="monitor")
     options = parser.parse_args()
+    if "awesome" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower().split(":"):
+        result = subprocess.run(["awesome-client", "return wm_command()"],
+                                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+        if result.returncode or result.stdout.strip() != "boolean true":
+            raise RuntimeError("el lanzador nativo de Awesome no está disponible")
+        return 0
     paths = subprocess.run(["dmenu_path"], text=True, encoding="utf-8",
                            stdout=subprocess.PIPE, timeout=10, check=True)
-    argv = ["dmenu", "-c", "-i", "-l", "12", "-p", "Ejecutar"]
-    if options.monitor is not None:
-        argv += ["-m", options.monitor]
+    argv = rofi("-dmenu", "-i", "-l", "12", "-p", "Ejecutar")
     selected = subprocess.run(argv, input=paths.stdout, text=True, encoding="utf-8",
                               stdout=subprocess.PIPE)
     text = selected.stdout.removesuffix("\n")
     if selected.returncode or not text.strip():
         return 0
+    if "\0" in text:
+        raise ValueError("el comando contiene un carácter nulo")
     subprocess.Popen(["alacritty", "-e", "/bin/sh", "-c", WRAPPER, "wm-command", text],
                      start_new_session=True)
     return 0
@@ -36,7 +43,7 @@ def run():
 if __name__ == "__main__":
     try:
         sys.exit(run())
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
         print("wm-command: no se pudo iniciar el comando", file=sys.stderr)
         try:
             subprocess.run(["wm-run", "--error", "comando", "No se pudo abrir el lanzador o la terminal"], timeout=20)

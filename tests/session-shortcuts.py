@@ -22,6 +22,9 @@ def binding(mod, key, function, *args):
 superkey, shift, alt, control = 64, 1, 8, 4
 for mod, key, argv in (
     (superkey, "XK_space", ("wm-launcher", "-m", "")),
+    (superkey, "XK_d", ("wm-command", "-m", "")),
+    (superkey, "XK_F1", ("wm-launcher", "--shortcuts")),
+    (superkey, "XK_Escape", ("wm-launcher", "--session-menu")),
     (superkey, "XK_Return", ("jumpapp", "-n", "alacritty")),
     (superkey, "XK_w", ("jumpapp", "-n", "brave")),
     (superkey | shift, "XK_w", ("jumpapp", "-n", "chromium")),
@@ -37,12 +40,14 @@ for key, function in (("m", "togglemaximize"), ("f", "togglefullscreen"),
     binding(superkey, "XK_" + key, function, 0)
 for key, direction in (("Left", -1), ("Right", 1)):
     binding(superkey | shift, "XK_" + key, "tagmon", direction)
-binding(alt, "XK_Tab", "focusstack", 1)
-binding(alt | shift, "XK_Tab", "focusstack", -1)
+binding(alt, "XK_Tab", "alttab", 1)
+binding(alt | shift, "XK_Tab", "alttab", -1)
+binding(superkey, "XK_h", "minimize", 0)
+binding(superkey, "XK_t", "toggleabove", 0)
 binding(superkey, "XK_q", "killclient", 0)
 binding(control, "XK_q", "killclient", 0)
 binding(alt, "XK_F4", "killclient", 0)
-assert len(expected) == 21
+assert len(expected) == 26
 
 commands = {
     "play": ("playerctl", "play-pause"),
@@ -90,7 +95,7 @@ typedef struct {
 } Rule;
 enum { SchemeNorm, SchemeSel };
 enum { PlaceLeft = 1, PlaceRight = 2, PlaceTop = 4, PlaceBottom = 8 };
-enum { ClkClientWin };
+enum { ClkClientWin, ClkRootWin, ClkStart };
 static void tile(void *m) { (void)m; }
 static void monocle(void *m) { (void)m; }
 '''
@@ -132,5 +137,5 @@ for line in result.stdout.splitlines():
 assert actual == expected, {key: (expected.get(key), actual.get(key))
                             for key in expected.keys() | actual.keys()
                             if expected.get(key) != actual.get(key)}
-assert len(actual) == 39
-print("PASS: compiled session bindings, argv, Plasma extras, collisions and existing shortcuts")
+assert len(actual) == 44
+print("PASS: compiled session bindings, external menus, argv, collisions and existing shortcuts")

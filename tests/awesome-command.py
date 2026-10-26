@@ -26,7 +26,8 @@ def run(argv, **kwargs):
     if argv == ["dmenu_path"]:
         assert kwargs["timeout"] == 10 and kwargs["check"]
         return types.SimpleNamespace(stdout="echo\nprintf\n", returncode=0)
-    assert argv == ["dmenu", "-c", "-i", "-l", "12", "-p", "Ejecutar", "-m", "2"]
+    assert argv[:2] == ["rofi", "-no-config"] and argv[-6:] == ["-dmenu", "-i", "-l", "12", "-p", "Ejecutar"]
+    assert argv[argv.index("-monitor") + 1] == "-5"
     assert kwargs["input"] == "echo\nprintf\n"
     return types.SimpleNamespace(stdout=selection, returncode=code)
 
@@ -50,7 +51,14 @@ try:
         code = 0
         calls.clear()
         assert module.run() == 0 and len(calls) == 3
-    for failure in ("dmenu_path", "dmenu", "alacritty"):
+    selection, code = "bad\0command\n", 0
+    try:
+        module.run()
+        raise AssertionError("NUL command accepted")
+    except ValueError:
+        pass
+    selection = "echo safe\n"
+    for failure in ("dmenu_path", "rofi", "alacritty"):
         try:
             module.run()
             raise AssertionError("missing failure")
@@ -82,15 +90,15 @@ for status in (0, 7):
                 if not data:
                     break
                 output += data
-            if status and b"Pulsa Enter" in output:
-                assert process.poll() is None, "error must wait for Enter"
+            if b"Pulsa Enter" in output:
+                assert process.poll() is None, "command output must wait for Enter"
                 os.write(master, b"\n")
                 break
             if process.poll() is not None:
                 break
         assert process.wait(timeout=3) == status
         assert b"TTY-" in output
-        assert (b"Pulsa Enter" in output) == bool(status)
+        assert b"Pulsa Enter" in output
     finally:
         if process.poll() is None:
             process.kill()
