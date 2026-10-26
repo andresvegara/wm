@@ -18,6 +18,22 @@ normal enfoca y eleva. Los docks no reciben foco. Jumpapp conserva las ventanas 
 en su monitor; las normales nuevas aparecen centradas y los diálogos usan el
 monitor del padre. Fullscreen/docks conservan sus reglas de colocación.
 
+También puedes mover una ventana arrastrando con el botón izquierdo su cabecera
+propia o el hueco libre junto a sus pestañas, sin Super, si la aplicación envía
+la petición estándar `_NET_WM_MOVERESIZE`. Es soporte general, no una excepción
+para navegadores. Al empezar a mover una maximizada o ajustada a un lado,
+recupera el tamaño flotante bajo el cursor; un clic sin movimiento no la restaura.
+No se añade otra barra superior ni se convierten los huecos del contenido en asas.
+Super+arrastrar sigue disponible para aplicaciones sin esa integración. No se
+mueven ventanas fullscreen, docks o minimizadas. El mismo protocolo permite
+redimensionar con el botón izquierdo desde los ocho bordes/esquinas de la aplicación,
+respetando tamaños mínimos/máximos, incrementos y proporciones. Las ventanas de
+tamaño fijo pueden moverse pero no redimensionarse. Al redimensionar una maximizada
+o ajustada se parte de su rectángulo actual; solo se libera ese ajuste si cambia
+la geometría. Los arrastres solicitados por la aplicación no desplazan el cursor
+artificialmente. No se añaden las variantes EWMH iniciadas por teclado; se mantienen
+los atajos existentes de colocación y Super+arrastrar.
+
 | Atajo | Acción |
 | --- | --- |
 | Super+Espacio | Rofi: aplicaciones, ventanas y acciones |
@@ -346,7 +362,9 @@ dwmblocks, este menú sigue disponible mediante Super+Escape.
 Las incidencias nuevas se agrupan en un aviso cuando Dunst está disponible; si
 Dunst estaba caído, el aviso se retrasa hasta su recuperación. Los reintentos del
 mismo fallo no generan avisos repetidos. Si falla el propio envío del aviso, el
-estado y el registro siguen disponibles. Un fallo recuperado se retira del contador.
+estado y el registro siguen disponibles. La recuperación debe mantenerse cinco
+segundos antes de retirar el fallo del contador: un componente que arranca y cae
+repetidamente no genera un aviso nuevo en cada intento.
 
 El estado se conserva en `health.json`, privado y limitado, dentro del runtime
 propio; no contiene títulos de ventanas ni contenido de notificaciones. Se valida
