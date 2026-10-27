@@ -1,0 +1,13 @@
+diff --git a/config.def.h b/config.def.h
+index 668f744..7856167 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -94,7 +94,7 @@ char *termname = "st-256color";
+ unsigned int tabspaces = 8; /* must be > 0 */
+ 
+ /* background opacity, requires a compositor */
+-static float alpha = 0.9;
++static float alpha = 1.0;
+ 
+ /* Terminal colors (16 first used in escape sequence) */
+ static const char *colorname[] = {

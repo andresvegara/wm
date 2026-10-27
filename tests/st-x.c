@@ -173,7 +173,7 @@ testprofile(void)
 	size_t i;
 
 	assert(!borderpx && cursorstyle == 1 && blinktimeout);
-	assert(fabsf(alpha - 0.9f) < 0.000001f);
+	assert(alpha == 1.0f);
 	assert(!strcmp(termname, "st-256color") && !allowwindowops);
 	for (i = 0; i < LEN(palette); i++)
 		assert(!strcmp(colorname[i], palette[i]));

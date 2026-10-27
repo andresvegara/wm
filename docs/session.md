@@ -3,8 +3,8 @@
 Dwm gestiona ventanas, barra y bandeja; dwmblocks muestra indicadores. Rofi,
 Dunst, Xfce Power Manager, xsettingsd y las herramientas de sesión resuelven el
 resto. No se ejecuta el escritorio Xfce completo ni otro gestor de ventanas.
-Bluebird es el tema predeterminado. Alacritty es la terminal; st y dmenu siguen
-incluidos como alternativas, no como la interfaz principal.
+Bluebird es el tema predeterminado. st es la terminal, opaca y sin blur;
+dmenu sigue incluido como alternativa, no como la interfaz principal.
 
 Los cambios se preparan en fuentes: el instalador no inicia la sesión ni los
 servicios. La validación automatizada no es una prueba visual, de autenticación
@@ -37,12 +37,12 @@ los atajos existentes de colocación y Super+arrastrar.
 | Atajo | Acción |
 | --- | --- |
 | Super+Espacio | Rofi: aplicaciones, ventanas y acciones |
-| Super+D | Comando libre con sugerencias de PATH, ejecutado en Alacritty |
+| Super+D | Comando libre con sugerencias de PATH, ejecutado en st |
 | Alt+Tab / Alt+Shift+Tab | Selector nativo MRU global; soltar Alt activa, Escape cancela |
 | Super+H / Super+T | Minimizar / alternar siempre encima |
 | Super+F1 | Ayuda de atajos buscable en Rofi |
 | Super+Escape / clic derecho en el fondo | Menú de acciones de sesión |
-| Super+Intro | Abrir/enfocar/alternar Alacritty con Jumpapp |
+| Super+Intro | Abrir/enfocar/alternar st con Jumpapp |
 | Super+W / Super+Shift+W | Brave / Chromium |
 | Super+E | Thunar (`jumpapp -n -f thunar`) |
 | Super+Shift+M / Super+Shift+C | Spotify / CopyQ |
@@ -154,8 +154,8 @@ código una etiqueta de ventana, aplicación, tema o notificación. Las sugerenc
 usan dmenu_path; no se recorren documentos de HOME ni se mantienen índices de
 archivos. Las cachés de aplicaciones que gestione Rofi no son índices de archivos.
 
-Alacritty es también la preferencia XDG para las aplicaciones de terminal. No se
-modifica su configuración personal. Jumpapp mantiene los atajos por aplicación;
+st es también la preferencia XDG para las aplicaciones de terminal; Alacritty
+queda como alternativa. No se modifica la configuración personal de Alacritty. Jumpapp mantiene los atajos por aplicación;
 Thunar puede abrir una ventana aunque su proceso esté ejecutándose sin ventanas.
 
 Los atajos y acciones pasan por `wm-run`: notifica fallos de ejecución o errores

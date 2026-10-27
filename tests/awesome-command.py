@@ -34,9 +34,9 @@ def run(argv, **kwargs):
 
 def popen(argv, **kwargs):
     calls.append((argv, kwargs))
-    assert argv == ["alacritty", "-e", "/bin/sh", "-c", module.WRAPPER, "wm-command", selection.removesuffix("\n")]
+    assert argv == ["st", "-e", "/bin/sh", "-c", module.WRAPPER, "wm-command", selection.removesuffix("\n")]
     assert kwargs == {"start_new_session": True}
-    if failure == "alacritty":
+    if failure == "st":
         raise OSError("synthetic spawn failure")
     return object()
 
@@ -58,7 +58,7 @@ try:
     except ValueError:
         pass
     selection = "echo safe\n"
-    for failure in ("dmenu_path", "rofi", "alacritty"):
+    for failure in ("dmenu_path", "rofi", "st"):
         try:
             module.run()
             raise AssertionError("missing failure")
@@ -68,7 +68,7 @@ finally:
     subprocess.run, subprocess.Popen, sys.argv = original_run, original_popen, original_argv
 
 # No GUI, sudo, bus or audio: only a local shell with a temporary controlling TTY.
-# setsid + TIOCSCTTY is not needed here: child stdin/out/err are a PTY, as Alacritty supplies.
+# setsid + TIOCSCTTY is not needed here: child stdin/out/err are a PTY, as st supplies.
 for status in (0, 7):
     master, slave = pty.openpty()
     text = "test -t 0 && test -t 1 && test -t 2 || exit 99; printf 'TTY-ñ'; exit {}".format(status)

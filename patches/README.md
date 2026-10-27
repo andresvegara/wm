@@ -93,6 +93,11 @@ Filenames use `dwm-<feature>-YYYYMMDD-bca7cf2.diff`. The order is:
 | taskiconsdocs | Document icon sources, text fallback and dependency limits. |
 | edgepreview | Drag-edge halves/quarters/maximize with four-window outline and ICCCM eligibility. |
 | edgepreviewdocs | Document zones, cancellation, hints and unchanged keyboard placement. |
+| stdefault | Personal terminal binding: prefer st through Jumpapp. |
+| stdefaultdocs | Document st for the terminal binding and command launcher. |
+
+Stdefault is a local configuration change after the complete preceding series;
+stdefaultdocs follows stdefault. It supersedes the earlier Alacritty preference.
 
 These are ordered patches, not interchangeable standalone patches.
 Titlebaroption requires titlebarconfig and the earlier titlebar patch; taskbar
@@ -363,6 +368,8 @@ Order is recorded in `st/series`:
 | historydocs | User documentation and provenance for terminal history. |
 | fontprimary | Personal profile: only Hack as primary, keeping per-glyph fallback. |
 | fontprimarydocs | Document primary-font selection and existing fallback. |
+| opaque | Personal profile: opaque background by default, retaining optional -A. |
+| opaquedocs | Document opaque defaults and compositor-owned blur policy. |
 
 Source artifacts are preserved unchanged in `upstream/st/`, with SHA256SUMS
 checked by make test. Sources and attribution:
@@ -388,6 +395,9 @@ Fontprimary follows the profile/history series and removes the explicit emoji
 family from primary matching: it could win Fontconfig matching and impose a
 large bitmap strike on all terminal cells. Existing per-glyph fallback remains
 unchanged. Fontprimarydocs follows fontprimary and only updates user documentation.
+Opaque is a local configuration change after this complete profile, overriding
+its earlier alpha default with 1.0; opaquedocs depends on opaque. Neither patch
+changes the original alpha implementation or adds compositor behavior.
 
 The scrollback patch adapts [the community 0.9.2 patch](https://st.suckless.org/patches/scrollback/st-scrollback-0.9.2.diff)
 to this series, separately from bindings. It tracks valid history lines instead

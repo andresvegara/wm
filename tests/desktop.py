@@ -149,7 +149,7 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
         original_report("app", "synthetic error")
         assert run.call_args.args[0] == ["wm-run", "--error", "app", "synthetic error"]
 assert index.read_text() == '{"paths":["old-file"]}'
-assert (root / "session/dwm-xdg-terminals.list").read_text().splitlines() == ["Alacritty.desktop", "wm-st.desktop"]
+assert (root / "session/dwm-xdg-terminals.list").read_text().splitlines() == ["wm-st.desktop", "Alacritty.desktop"]
 print("PASS: Rofi delegation, no file indexing, safe selection, confirmations, native Awesome compatibility and errors")
 
 # Wallpaper files are synthetic bytes; never decode the user's image or run X/GTK.

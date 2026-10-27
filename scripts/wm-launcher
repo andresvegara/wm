@@ -45,6 +45,7 @@ def actions():
     }
     if awesome():
         return catalog
+    catalog["Estado de energía"] = (["st", "-e", "watch", "-n", "5", "upower", "--dump"], False)
     catalog["Cerrar sesión"] = (["wm-supervisor", "--logout"], True)
     catalog["Estado de sesión"] = (["wm-supervisor", "--status"], False)
     catalog["Ayuda de atajos"] = (["wm-launcher", "--shortcuts"], False)
@@ -82,7 +83,7 @@ def shortcuts():
         "Super+Espacio — Aplicaciones, ventanas y acciones",
         "Super+D — Ejecutar comando en terminal",
         "Super+Escape / clic derecho en fondo — Menú de sesión",
-        "Super+Intro — Alacritty",
+        "Super+Intro — st",
         "Super+W / Super+Shift+W — Brave / Chromium",
         "Super+E — Thunar",
         "Super+Shift+M — Spotify",
@@ -176,7 +177,7 @@ def run():
     else:
         script = shlex.quote(str(Path(__file__).resolve())) + " --rofi-actions"
         argv = rofi("-show", "combi", "-modi", "combi,Acciones:" + script,
-                    "-combi-modes", "drun,window,Acciones", "-show-icons", "-terminal", "alacritty")
+                    "-combi-modes", "drun,window,Acciones", "-show-icons", "-terminal", "st")
         if options.start:
             argv += ["-theme-str", "window { location: southwest; anchor: southwest; "
                      "width: 40%; x-offset: 0; y-offset: -32px; }"]

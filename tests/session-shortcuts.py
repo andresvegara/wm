@@ -25,7 +25,7 @@ for mod, key, argv in (
     (superkey, "XK_d", ("wm-command", "-m", "")),
     (superkey, "XK_F1", ("wm-launcher", "--shortcuts")),
     (superkey, "XK_Escape", ("wm-launcher", "--session-menu")),
-    (superkey, "XK_Return", ("jumpapp", "-n", "alacritty")),
+    (superkey, "XK_Return", ("jumpapp", "-n", "st")),
     (superkey, "XK_w", ("jumpapp", "-n", "brave")),
     (superkey | shift, "XK_w", ("jumpapp", "-n", "chromium")),
     (superkey, "XK_e", ("jumpapp", "-n", "-f", "thunar")),

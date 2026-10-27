@@ -35,7 +35,7 @@ def run():
         return 0
     if "\0" in text:
         raise ValueError("el comando contiene un carácter nulo")
-    subprocess.Popen(["alacritty", "-e", "/bin/sh", "-c", WRAPPER, "wm-command", text],
+    subprocess.Popen(["st", "-e", "/bin/sh", "-c", WRAPPER, "wm-command", text],
                      start_new_session=True)
     return 0
 

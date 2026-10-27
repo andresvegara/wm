@@ -1,0 +1,30 @@
+diff --git a/README b/README
+index c1707ad..a742713 100644
+--- a/README
++++ b/README
+@@ -11,9 +11,9 @@ this preparation phase.
+ 
+ The wm profile uses Hack Nerd Font Mono at 11 points as its only primary font,
+ the existing Alacritty palette, zero fixed padding, a blinking block
+-cursor, Ctrl+Insert copy and familiar copy/paste/zoom shortcuts. The alpha patch
+-sets background opacity to 0.9; transparency and blur require a compositor.
+-No blur implementation is added to st itself. Scrollback holds 2000 physical
++cursor, Ctrl+Insert copy and familiar copy/paste/zoom shortcuts. Backgrounds
++are opaque by default (alpha 1.0); -A can explicitly request transparency.
++No blur implementation is added to st itself; the wm compositor disables blur. Scrollback holds 2000 physical
+ rows, with resize reflow of the default screen/history and separate alternate
+ screen contents. Shift+PageUp/PageDown scrolls a page; the wheel scrolls three
+ rows unless the application requests mouse events (Shift overrides it).
+diff --git a/st.1 b/st.1
+index d3f94cb..5a65d1c 100644
+--- a/st.1
++++ b/st.1
+@@ -60,7 +60,7 @@ is a simple terminal emulator.
+ disable alternate screens in terminal
+ .TP
+ .BI \-A " opacity"
+-Set background opacity to a finite number between 0 and 1 (default 0.9).
++Set background opacity to a finite number between 0 and 1 (default 1.0, opaque).
+ Requires a 32-bit visual and a compositor for transparency.
+ On other visuals the background stays opaque. Invalid values are rejected.
+ .TP

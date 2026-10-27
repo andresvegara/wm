@@ -262,7 +262,8 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
          patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
         launcher.run()
         argv = run.call_args.args[0]
-        assert "drun,window,Acciones" in argv and "-terminal" in argv
+        assert "drun,window,Acciones" in argv and argv[argv.index("-terminal") + 1] == "st"
+        assert launcher.actions()["Estado de energía"][0] == ["st", "-e", "watch", "-n", "5", "upower", "--dump"]
     dispatched, closed = [], []
     status = 0
     def finish_rofi(argv, **kwargs):
@@ -285,7 +286,7 @@ with patch.object(subprocess, "run", side_effect=AssertionError("UNMOCKED PROCES
          patch.object(subprocess, "run", side_effect=replies) as run, patch.object(subprocess, "Popen") as popen:
         cmd.run()
         assert run.call_args_list[1].args[0][0] == "rofi"
-        assert popen.call_args.args[0] == ["alacritty", "-e", "/bin/sh", "-c", cmd.WRAPPER, "wm-command", text]
+        assert popen.call_args.args[0] == ["st", "-e", "/bin/sh", "-c", cmd.WRAPPER, "wm-command", text]
     notes = load("wm-notifications")
     data = {"type": "aa{sv}", "data": [[{"id": {"type": "i", "data": 42},
             "summary": {"type": "s", "data": "bad\n$(touch never)"}, "body": {"type": "s", "data": "text"}}]]}

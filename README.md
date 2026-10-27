@@ -3,8 +3,8 @@
 Sesión X11 con dwm para ventanas/barra/bandeja y dwmblocks para indicadores.
 Rofi proporciona aplicaciones, comandos, ventanas y menús; Dunst gestiona avisos,
 historial y No molestar; Xfce Power Manager gestiona energía y xsettingsd la
-apariencia. Bluebird es el tema predeterminado en dwm y Awesome. Alacritty es
-la terminal; st y dmenu siguen incluidos como alternativas.
+apariencia. Bluebird es el tema predeterminado en dwm y Awesome. st es la
+terminal predeterminada de dwm, opaca y sin blur; dmenu sigue incluido.
 
 La [guía de sesión](docs/session.md) recoge atajos, componentes y límites.
 Barra de dwm siempre visible abajo, con bandeja XEmbed y puente snixembed;
