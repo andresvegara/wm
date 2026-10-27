@@ -139,6 +139,9 @@ awesome-command	systemctl	systemd	/usr/bin/systemctl
 awesome-command	pgrep	procps-ng	/usr/bin/pgrep
 awesome-command	wmctrl	wmctrl	/usr/bin/wmctrl
 awesome-command	xset	xorg-xset	/usr/bin/xset
+awesome-command	xsetroot	xorg-xsetroot	/usr/bin/xsetroot
+awesome-command	feh	feh	/usr/bin/feh
+awesome-command	zenity	zenity	/usr/bin/zenity
 awesome-command	setxkbmap	xorg-setxkbmap	/usr/bin/setxkbmap
 awesome-command	notify-send	libnotify	/usr/bin/notify-send
 awesome-command	xmessage	xorg-xmessage	/usr/bin/xmessage

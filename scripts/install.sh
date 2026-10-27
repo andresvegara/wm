@@ -126,6 +126,10 @@ stage_awesome()
 	install -D -m 644 "$root/awesome/config/themes.json" "$stage/usr/local/share/wm/themes.json"
 	install -m 644 "$root/scripts/wm_session.py" "$stage/usr/local/bin/wm_session.py"
 	stage_st
+	if [ -e "$root/wallpaper.png" ] || [ -L "$root/wallpaper.png" ]; then
+		[ -f "$root/wallpaper.png" ] && [ ! -L "$root/wallpaper.png" ] || fail 'wallpaper.png debe ser regular'
+		install -D -m 644 "$root/wallpaper.png" "$stage/usr/local/share/wm/wallpaper.png"
+	fi
 	install -D -m 644 "$root/session/awesome-xdg-terminals.list" "$stage/usr/local/share/xdg-terminal-exec/awesome-xdg-terminals.list"
 	for helper in wm-close; do
 		cc -std=c99 -pedantic -Wall -Wextra $(pkg-config --cflags x11) \
@@ -136,7 +140,7 @@ stage_awesome()
 	install -D -m 644 "$root/awesome/rc.lua" "$stage/usr/local/share/wm/awesome/rc.lua"
 	install -m 755 "$root/session/awesome-session" "$stage/usr/local/bin/awesome-session"
 	install -m 755 "$root/scripts/awesome-supervisor" "$stage/usr/local/bin/awesome-supervisor"
-	for helper in wm-command wm-launcher wm-run wm-control wm-displays; do
+	for helper in wm-command wm-launcher wm-run wm-control wm-displays wm-wallpaper; do
 		[ -f "$root/scripts/$helper" ] && [ ! -L "$root/scripts/$helper" ] || fail "falta helper regular: $helper"
 		install -m 755 "$root/scripts/$helper" "$stage/usr/local/bin/$helper"
 	done

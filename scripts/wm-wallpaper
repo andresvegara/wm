@@ -54,18 +54,18 @@ def current(directory):
 
 
 @contextmanager
-def locked():
+def locked(session="dwm"):
     base = Path(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"))
-    directory = base.resolve() / "wm/dwm"
+    directory = base.resolve() / "wm" / session
     private_directory(directory)
     with open_private(directory / "wallpaper.lock") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         yield directory
 
 
-def set_wallpaper(path):
+def set_wallpaper(path, session="dwm"):
     source_path = Path(path).expanduser().resolve(strict=True)
-    with locked() as directory:
+    with locked(session) as directory:
         previous = current(directory)
         fd, name = tempfile.mkstemp(prefix="wallpaper-", dir=directory)
         staged = Path(name)
@@ -90,9 +90,11 @@ def set_wallpaper(path):
 def run():
     parser = argparse.ArgumentParser(description="Fondo común persistente en fill")
     parser.add_argument("--restore", action="store_true")
+    parser.add_argument("--awesome", action="store_true")
     options = parser.parse_args()
+    session = "awesome" if options.awesome else "dwm"
     if options.restore:
-        with locked() as directory:
+        with locked(session) as directory:
             apply(current(directory))
         return
     result = subprocess.run(["zenity", "--file-selection", "--title=Fondo de pantalla",
@@ -103,7 +105,7 @@ def run():
         return
     if result.returncode or not result.stdout:
         raise RuntimeError("no se pudo seleccionar una imagen")
-    set_wallpaper(result.stdout.removesuffix("\n"))
+    set_wallpaper(result.stdout.removesuffix("\n"), session)
 
 
 if __name__ == "__main__":

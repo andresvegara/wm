@@ -61,7 +61,7 @@ for file in awesome-session awesome.desktop awesome-picom.conf; do
 	printf 'synthetic %s\n' "$file" > "$fixture/session/$file"
 done
 cp "$root/session/awesome-xdg-terminals.list" "$root/session/awesome-st.desktop" "$fixture/session/"
-for file in awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays; do
+for file in awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays wm-wallpaper; do
 	printf '#!/bin/sh\nexit 99 # synthetic, never executed\n' > "$fixture/scripts/$file"
 done
 printf 'personal config\n' > "$HOME/.config/awesome/rc.lua"
@@ -105,7 +105,7 @@ for file in rc.lua config/keys.lua config/session.lua config/displays.lua config
 	cmp "$fixture/awesome/$file" "$dest/usr/local/share/wm/awesome/$file"
 	[ "$(stat -c %a "$dest/usr/local/share/wm/awesome/$file")" = 644 ] || fail 'Lua mode'
 done
-for file in awesome-session awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays wm-close; do
+for file in awesome-session awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays wm-close wm-wallpaper; do
 	[ "$(stat -c %a "$dest/usr/local/bin/$file")" = 755 ] || fail 'executable mode'
 done
 cmp "$fixture/session/awesome.desktop" "$dest/usr/local/share/xsessions/awesome.desktop"
@@ -116,7 +116,7 @@ cmp "$fixture/session/awesome-picom.conf" "$dest/usr/local/share/wm/awesome-pico
 [ ! -e "$dest/usr/local/share/wm/awesome/widgets/backend.py" ] || fail 'obsolete worker installed'
 cmp "$root/scripts/wm_session.py" "$dest/usr/local/bin/wm_session.py" || fail 'shared module missing'
 cmp "$root/awesome/config/themes.json" "$dest/usr/local/share/wm/themes.json" || fail 'shared themes missing'
-for tool in dunst xsetroot rofi xfce4-power-manager; do
+for tool in dunst rofi xfce4-power-manager; do
 	[ ! -e "$bin/$tool" ] || fail "exclusive dependency present: $tool"
 done
 printf 'existing dwm config\n' > "$dest/usr/local/share/wm/dunstrc"
@@ -223,7 +223,7 @@ cp "$root/awesome/rc.lua" "$fixture/awesome/rc.lua"
 cp -R "$root/awesome/config/." "$fixture/awesome/config/"
 cp -R "$root/awesome/widgets/." "$fixture/awesome/widgets/"
 cp "$root/session/awesome-session" "$root/session/awesome.desktop" "$root/session/awesome-picom.conf" "$root/session/awesome-xdg-terminals.list" "$fixture/session/"
-for file in awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays; do
+for file in awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays wm-wallpaper; do
 	cp "$root/scripts/$file" "$fixture/scripts/$file"
 done
 run || fail 'delivered payload staging'

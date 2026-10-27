@@ -201,7 +201,7 @@ with patch.object(wallpaper, "DATA", assets), \
          patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, str(source) + "\n")), \
          patch.object(wallpaper, "set_wallpaper") as setter:
         wallpaper.run()
-        setter.assert_called_once_with(str(source))
+        setter.assert_called_once_with(str(source), "dwm")
     with patch.object(subprocess, "run", side_effect=fake_feh), \
          patch.object(sys, "argv", ["wm-wallpaper", "--restore"]):
         default = assets / "wallpaper.png"
@@ -389,4 +389,14 @@ with patch.object(wallpaper, "DATA", assets), \
                     pass
             assert len(applied) == before
         assert sentinel.read_bytes() == b"do not change"
+        before_dwm = saved.read_bytes()
+        source.write_bytes(b"image:awesome")
+        wallpaper.set_wallpaper(source, "awesome")
+        awesome_saved = datahome / "wm/awesome/wallpaper"
+        assert awesome_saved.read_bytes() == b"image:awesome"
+        assert saved.read_bytes() == before_dwm
+        with patch.object(sys, "argv", ["wm-wallpaper", "--awesome", "--restore"]):
+            wallpaper.run()
+        assert applied[-1][1] == b"image:awesome"
+        assert awesome_saved.stat().st_mode & 0o777 == 0o600
 print("PASS: wallpaper picker/cancel, common fill argv, private atomic persistence, linked data base/HOME, default, rollback and hostile paths (synthetic files/X/GTK only)")
