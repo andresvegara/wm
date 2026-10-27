@@ -370,6 +370,8 @@ Order is recorded in `st/series`:
 | fontprimarydocs | Document primary-font selection and existing fallback. |
 | opaque | Personal profile: opaque background by default, retaining optional -A. |
 | opaquedocs | Document opaque defaults and compositor-owned blur policy. |
+| osc52 | Personal profile: enable existing OSC 52 clipboard writes. |
+| osc52docs | Document clipboard permissions and visual-selection line breaks. |
 
 Source artifacts are preserved unchanged in `upstream/st/`, with SHA256SUMS
 checked by make test. Sources and attribution:
@@ -398,6 +400,11 @@ unchanged. Fontprimarydocs follows fontprimary and only updates user documentati
 Opaque is a local configuration change after this complete profile, overriding
 its earlier alpha default with 1.0; opaquedocs depends on opaque. Neither patch
 changes the original alpha implementation or adds compositor behavior.
+Osc52 is a local configuration change after opaquedocs; osc52docs follows it.
+It enables the existing upstream OSC 52 write path, not clipboard reads or a
+new protocol. Local or remote terminal applications may overwrite the system
+clipboard. Tests exercise enabled/disabled writes with mocked X11 selection
+calls and preserve automatic-wrap joining versus explicit selection newlines.
 
 The scrollback patch adapts [the community 0.9.2 patch](https://st.suckless.org/patches/scrollback/st-scrollback-0.9.2.diff)
 to this series, separately from bindings. It tracks valid history lines instead

@@ -1,0 +1,38 @@
+diff --git a/README b/README
+index a742713..b8b0160 100644
+--- a/README
++++ b/README
+@@ -17,7 +17,13 @@ No blur implementation is added to st itself; the wm compositor disables blur. S
+ rows, with resize reflow of the default screen/history and separate alternate
+ screen contents. Shift+PageUp/PageDown scrolls a page; the wheel scrolls three
+ rows unless the application requests mouse events (Shift overrides it).
+-Column changes clear the selection. The core is tested with ASan/UBSan and
++Column changes clear the selection. OSC 52 clipboard writes are enabled, so
++applications (including remote programs over SSH) can replace the system
++clipboard. Set allowwindowops to 0 to disable this. Shift+mouse selection
++joins terminal-wrapped rows, but keeps explicit line breaks; application-drawn
++rows may not preserve the original logical line. Prefer application-owned
++copying through OSC 52 for those cases.
++The core is tested with ASan/UBSan and
+ synthetic input, not a live terminal session.
+ 
+ History/reflow adapts the suckless community scrollback 0.9.2 and reflow 0.9.2
+diff --git a/st.1 b/st.1
+index 5a65d1c..bdf9b7e 100644
+--- a/st.1
++++ b/st.1
+@@ -180,6 +180,14 @@ Reset font size.
+ .TP
+ .B Shift-Insert
+ Paste from the primary selection.
++.SH CLIPBOARD
++OSC 52 clipboard writes are enabled by default. Applications, including remote
++programs over SSH, can replace the system clipboard. Set allowwindowops to 0
++in config.h and rebuild to disable this.
++.PP
++Shift-mouse selection joins rows wrapped automatically by the terminal, but
++preserves explicit line breaks. Applications drawing rows separately may lose
++that wrapping information; use their own OSC 52 copy action when available.
+ .SH WM DEVELOPMENT
+ This profile uses Hack Nerd Font Mono at 11 points as its only primary font,
+ a blinking block cursor, zero fixed padding and per-pixel window resizing.

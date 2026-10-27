@@ -8,8 +8,11 @@ wchar_t *worddelimiters = L" ";
 int allowaltscreen = 1, allowwindowops;
 unsigned int tabspaces = 8, defaultfg = 7, defaultbg = 0, defaultcs = 7;
 
+static char *clipboard;
+static int clipboardcopies;
+
 void xbell(void) {}
-void xclipcopy(void) {}
+void xclipcopy(void) { clipboardcopies++; }
 void xdrawcursor(int a, int b, Glyph c, int d, int e, Glyph f) {}
 void xdrawline(Line a, int b, int c, int d) {}
 void xfinishdraw(void) {}
@@ -21,9 +24,58 @@ void xsettitle(char *s) {}
 int xsetcursor(int n) { return 0; }
 void xsetmode(int a, unsigned int b) {}
 void xsetpointermotion(int n) {}
-void xsetsel(char *s) { free(s); }
+void xsetsel(char *s) { free(clipboard); clipboard = s; }
 int xstartdraw(void) { return 0; }
 void xximspot(int a, int b) {}
+
+static void
+osc52(void)
+{
+	const char bel[] = "\033]52;c;aGVsbG8=\007";
+	const char st[] = "\033]52;c;d29ybGQ=\033\\";
+
+	treset();
+	allowwindowops = 0;
+	twrite(bel, sizeof(bel) - 1, 0);
+	assert(!clipboard && !clipboardcopies);
+	allowwindowops = 1;
+	twrite(bel, sizeof(bel) - 1, 0);
+	assert(clipboard && !strcmp(clipboard, "hello") && clipboardcopies == 1);
+	twrite(st, sizeof(st) - 1, 0);
+	assert(!strcmp(clipboard, "world") && clipboardcopies == 2);
+	allowwindowops = 0;
+	twrite(bel, sizeof(bel) - 1, 0);
+	assert(!strcmp(clipboard, "world") && clipboardcopies == 2);
+	free(clipboard);
+	clipboard = NULL;
+}
+
+static void
+selection(void)
+{
+	const char wrapped[] = "https://example.com/path";
+	const char newline[] = "https://example.\r\ncom/path";
+	char *text;
+
+	treset();
+	twrite(wrapped, sizeof(wrapped) - 1, 0);
+	selstart(0, 0, 0);
+	selextend(7, 1, SEL_REGULAR, 0);
+	selextend(7, 1, SEL_REGULAR, 1);
+	text = getsel();
+	assert(text && !strcmp(text, wrapped));
+	free(text);
+	selclear();
+	treset();
+	twrite(newline, sizeof(newline) - 1, 0);
+	selstart(0, 0, 0);
+	selextend(7, 1, SEL_REGULAR, 0);
+	selextend(7, 1, SEL_REGULAR, 1);
+	text = getsel();
+	assert(text && !strcmp(text, "https://example.\ncom/path"));
+	free(text);
+	selclear();
+}
 
 static void
 history(void)
@@ -137,8 +189,10 @@ main(void)
 	assert(setlocale(LC_CTYPE, "C.UTF-8"));
 	selinit();
 	tnew(16, 4);
+	osc52();
+	selection();
 	history();
 	reflow();
-	puts("PASS: st bounded history, selection, Unicode reflow, resize and alternate screen (ASan/UBSan; no PTY/X)");
+	puts("PASS: st OSC 52 permissions/copy, wrapped/explicit newlines, bounded history, Unicode reflow, resize and alternate screen (ASan/UBSan; no PTY/X)");
 	return 0;
 }

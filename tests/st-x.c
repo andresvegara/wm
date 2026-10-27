@@ -174,7 +174,7 @@ testprofile(void)
 
 	assert(!borderpx && cursorstyle == 1 && blinktimeout);
 	assert(alpha == 1.0f);
-	assert(!strcmp(termname, "st-256color") && !allowwindowops);
+	assert(!strcmp(termname, "st-256color") && allowwindowops);
 	for (i = 0; i < LEN(palette); i++)
 		assert(!strcmp(colorname[i], palette[i]));
 	assert(!strcmp(colorname[defaultbg], "#2d2d2d"));
