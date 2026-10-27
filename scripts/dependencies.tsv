@@ -105,7 +105,10 @@ font	Noto Color Emoji	noto-fonts-emoji	/usr/share/fonts/noto/NotoColorEmoji.ttf
 # Awesome requirements: default (both sessions) and --awesome.
 # awesome: https://archlinux.org/packages/extra/x86_64/awesome/
 # No unit activation or mandatory PPD/audio server; widget backend reports absence.
-awesome-command	alacritty	alacritty	/usr/bin/alacritty
+awesome-command	tic	ncurses	/usr/bin/tic
+awesome-pc	xft	libxft	xft.pc
+awesome-pc	fontconfig	fontconfig	fontconfig.pc
+awesome-pc	freetype2	freetype2	freetype2.pc
 awesome-command	xdg-terminal-exec	xdg-terminal-exec	/usr/bin/xdg-terminal-exec
 awesome-command	awesome	awesome	/usr/bin/awesome
 awesome-command	awesome-client	awesome	/usr/bin/awesome-client

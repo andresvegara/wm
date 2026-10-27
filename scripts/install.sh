@@ -65,6 +65,45 @@ publish()
 	done < "$tmp/install.files"
 }
 
+stage_st()
+{
+	if [ ! -d "$tmp/st" ]; then
+		source=$root/st
+		if [ ! -d "$source/.git" ] && [ ! -f "$source/.git" ]; then
+			source=$tmp/st-source
+			tab=$(printf '\t')
+			url= revision=
+			while IFS="$tab" read -r project remote commit; do
+				[ "$project" != st ] || { url=$remote; revision=$commit; }
+			done < "$root/checkouts.tsv"
+			case "$revision" in ''|*[!0-9a-f]*) fail 'revisión st inválida' ;; esac
+			[ "${#revision}" = 40 ] || fail 'revisión st incompleta'
+			case "$url" in
+			git@github.com:*.git) url=https://github.com/${url#git@github.com:} ;;
+			https://*) ;;
+			*) fail 'bootstrap st requiere HTTPS' ;;
+			esac
+			git init -q "$source"
+			GIT_TERMINAL_PROMPT=0 git -C "$source" fetch "$url" "$revision"
+			git -C "$source" checkout --detach "$revision"
+			[ "$(git -C "$source" rev-parse HEAD)" = "$revision" ] || fail 'revisión st incorrecta'
+		fi
+		mkdir "$tmp/st"
+		git -C "$source" ls-files > "$tmp/st.files"
+		tar -cf "$tmp/st.tar" -C "$source" -T "$tmp/st.files"
+		tar -xf "$tmp/st.tar" -C "$tmp/st"
+		(
+			unset MAKEFLAGS MFLAGS
+			make -C "$tmp/st" clean
+			rm -f "$tmp/st/config.h"
+			make -C "$tmp/st" CC=cc PREFIX=/usr/local all
+		)
+	fi
+	install -D -m 755 "$tmp/st/st" "$stage/usr/local/bin/st"
+	tic -sx -o "$stage/usr/local/share/terminfo" "$tmp/st/st.info"
+	install -D -m 644 "$root/session/awesome-st.desktop" "$stage/usr/local/share/applications/awesome-st.desktop"
+}
+
 stage_awesome()
 {
 	# Own configuration only: never discover or overwrite a user's rc.lua.
@@ -86,7 +125,7 @@ stage_awesome()
 	install -D -m 644 "$root/awesome/config/themes.json" "$stage/usr/local/share/wm/awesome/config/themes.json"
 	install -D -m 644 "$root/awesome/config/themes.json" "$stage/usr/local/share/wm/themes.json"
 	install -m 644 "$root/scripts/wm_session.py" "$stage/usr/local/bin/wm_session.py"
-	# Alacritty and its desktop entry are supplied by the system package.
+	stage_st
 	install -D -m 644 "$root/session/awesome-xdg-terminals.list" "$stage/usr/local/share/xdg-terminal-exec/awesome-xdg-terminals.list"
 	for helper in wm-close; do
 		cc -std=c99 -pedantic -Wall -Wextra $(pkg-config --cflags x11) \

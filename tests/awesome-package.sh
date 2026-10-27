@@ -42,7 +42,12 @@ printf '#!/bin/sh\n[ "$1" = -c ] && [ "$2" = "import sys; assert sys.version_inf
 printf '#!/bin/sh\ncase "$1" in --exists) [ "${MOCK_PC_FAIL-0}" = 0 ] ;; --variable=pc_path) printf "/synthetic/pkgconfig\\n" ;; esac\n' > "$bin/pkg-config"
 printf '#!/bin/sh\n[ "${MOCK_CC_FAIL-0}" = 0 ] || exit 42\nwhile [ "$1" != -o ]; do shift; done\nprintf "synthetic helper\\n" > "$2"\n' > "$bin/cc"
 printf '#!/bin/sh\n[ "$1" = -C ] && [ "$3" = ls-files ] || exit 99\nwhile IFS= read -r file; do printf "%%s\\n" "$file"; done < "$2/tracked"\n' > "$bin/git"
-printf '#!/bin/sh\n[ "$1" = -C ] || exit 99\ncase "$3" in clean) exit 0 ;; CC=cc) ;; *) exit 99 ;; esac\n[ "${MOCK_MAKE_FAIL-0}" = 0 ] || exit 42\nfor file in dmenu stest; do printf "synthetic binary\\n" > "$2/$file"; done\n' > "$bin/make"
+printf '#!/bin/sh\n[ "$1" = -C ] || exit 99\ncase "$3" in clean) exit 0 ;; CC=cc) ;; *) exit 99 ;; esac\n[ "${MOCK_MAKE_FAIL-0}" = 0 ] || exit 42\nprintf "synthetic binary\\n" > "$2/st"\n' > "$bin/make"
+printf '#!/bin/sh\nmkdir -p "$3/s"\nprintf "synthetic terminfo\\n" > "$3/s/st-256color"\n' > "$bin/tic"
+chmod 755 "$bin/tic"
+mkdir -p "$fixture/st/.git"
+printf 'st.info\n' > "$fixture/st/tracked"
+printf 'synthetic terminfo source\n' > "$fixture/st/st.info"
 chmod 755 "$bin/python3" "$bin/pkg-config" "$bin/cc" "$bin/git" "$bin/make"
 for helper in wm-close wm-monitor; do
 	printf '/* synthetic helper source, not compiled */\n' > "$fixture/awesome/$helper.c"
@@ -55,7 +60,7 @@ printf 'synthetic obsolete worker\n' > "$fixture/awesome/widgets/backend.py"
 for file in awesome-session awesome.desktop awesome-picom.conf; do
 	printf 'synthetic %s\n' "$file" > "$fixture/session/$file"
 done
-cp "$root/session/awesome-xdg-terminals.list" "$fixture/session/"
+cp "$root/session/awesome-xdg-terminals.list" "$root/session/awesome-st.desktop" "$fixture/session/"
 for file in awesome-supervisor wm-command wm-launcher wm-run wm-control wm-displays; do
 	printf '#!/bin/sh\nexit 99 # synthetic, never executed\n' > "$fixture/scripts/$file"
 done
@@ -117,13 +122,14 @@ done
 printf 'existing dwm config\n' > "$dest/usr/local/share/wm/dunstrc"
 [ ! -e "$dest/usr/local/bin/dwmblocks" ] || fail 'dwmblocks installed'
 [ ! -e "$dest/usr/local/share/man" ] || fail 'manuals installed'
-for file in st dmenu wm-monitor; do
+for file in dmenu wm-monitor; do
 	[ ! -e "$dest/usr/local/bin/$file" ] || fail "obsolete Awesome build: $file"
 done
-[ ! -e "$fixture/st" ] && [ ! -e "$fixture/dmenu" ] || fail 'source checkout must not be needed'
-[ ! -e "$dest/usr/local/share/terminfo" ] || fail 'st terminfo installed'
-[ ! -e "$dest/usr/local/share/applications/awesome-st.desktop" ] || fail 'obsolete st desktop installed'
-grep -qx 'Alacritty.desktop' "$dest/usr/local/share/xdg-terminal-exec/awesome-xdg-terminals.list" || fail 'default terminal' 
+[ ! -e "$fixture/dmenu" ] || fail 'dmenu source checkout must not be needed'
+[ -x "$dest/usr/local/bin/st" ] || fail 'st missing'
+[ -f "$dest/usr/local/share/terminfo/s/st-256color" ] || fail 'st terminfo missing'
+cmp "$root/session/awesome-st.desktop" "$dest/usr/local/share/applications/awesome-st.desktop" || fail 'st desktop missing'
+grep -qx 'awesome-st.desktop' "$dest/usr/local/share/xdg-terminal-exec/awesome-xdg-terminals.list" || fail 'default terminal'
 find "$dest" -type f -exec /usr/bin/stat -c '%n %i %Y %a' '{}' \; > "$work/before"
 run || fail 'repeat staging'
 grep -q '0 archivos Awesome actualizados' "$work/output" || fail 'not idempotent'
@@ -162,7 +168,8 @@ MOCK_CC_FAIL=1; export MOCK_CC_FAIL
 reject
 unset MOCK_CC_FAIL
 MOCK_MAKE_FAIL=1; export MOCK_MAKE_FAIL
-run || fail 'Awesome must not build a terminal or dmenu'
+reject
+check
 unset MOCK_MAKE_FAIL
 
 # Missing source or special files must fail before changing any destination.
@@ -196,11 +203,17 @@ run || fail 'repair after conflict'
 check
 
 # Real C builds in staging, still using synthetic configuration and no runtime apps.
-for tool in cc as ld make pkg-config; do
+git -C "$root/st" ls-files > "$work/st.files"
+tar -cf "$work/st.tar" -C "$root/st" -T "$work/st.files"
+tar -xf "$work/st.tar" -C "$fixture/st"
+cp "$work/st.files" "$fixture/st/tracked"
+for tool in cc as ld make pkg-config tic; do
 	ln -sf "/usr/bin/$tool" "$bin/$tool"
 done
 cp "$root/awesome/wm-close.c" "$root/awesome/wm-monitor.c" "$fixture/awesome/"
-run || { /usr/bin/tail -40 "$work/output"; fail 'real helper build'; }
+run || { /usr/bin/tail -40 "$work/output"; fail 'real helper/st build'; }
+/usr/bin/infocmp -A "$dest/usr/local/share/terminfo" st-256color > "$work/terminfo"
+grep -q st-256color "$work/terminfo" || fail 'invalid st terminfo'
 run || fail 'repeat real build'
 grep -q '0 archivos Awesome actualizados' "$work/output" || fail 'real builds not idempotent'
 check
