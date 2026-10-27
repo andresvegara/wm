@@ -35,13 +35,18 @@ Plasma/dwm ni activar nada. Sin argumentos, `sh scripts/install.sh` (o
 solo Awesome y componentes compartidos.
 El instalador está preparado; las comprobaciones visuales y de hardware quedan
 para la primera sesión. En Arch, `--awesome` resuelve sus paquetes con paru.
-Awesome usa Alacritty como terminal predeterminada (también Super+Intro), controles de aplicaciones en
+Awesome usa st opaca como terminal predeterminada (también Super+Intro), controles de aplicaciones en
 Lua y un selector de Apariencia Actual/Menta/Bluebird con elección privada persistente.
 Bluebird se usa cuando no hay una elección guardada; sus recursos GTK/iconos son
 opcionales y tienen fallback Adwaita, sin perder la paleta nativa.
 Super+Espacio incluye Apariencia, Pantallas y aplicaciones en un selector nativo;
-Super+D y el editor de monitores también usan UI de Awesome. `--awesome` ya no
-requiere ni construye dmenu ni st; Alacritty se obtiene del paquete del sistema.
+Super+D y el editor de monitores también usan UI de Awesome. La barra se inspira
+en Aero, opaca y sin blur: Inicio con icono y un botón con icono/título por ventana;
+pulsar la activa minimiza. Incluye búsqueda de ventanas, acciones personales,
+fondo persistente, encaje con preview desde título/Super y recuperación de
+complementos. Awesome 4.3 no maneja aún el arrastre mediante cabeceras propias
+de las aplicaciones (_NET_WM_MOVERESIZE). `--awesome` construye st/terminfo en
+temporales, sin dmenu ni cambios a la configuración personal de Alacritty.
 Las pruebas aisladas cubren el núcleo Lua, energía/almacenamiento, widgets,
 supervisores y empaquetado; la suite completa incluye regresión dwm/dwmblocks.
 No se ha probado una sesión gráfica real.

@@ -2,12 +2,10 @@
 
 Configuración propia para **Awesome 4.3 / Lua 5.3**, independiente de dwm y
 Plasma. No es un fork del gestor. El instalador prepara ambas sesiones o solo
-Awesome, sin activar servicios ni cambiar la sesión actual. El cambio a Alacritty
-como terminal predeterminada pasa los tests aislados de terminal y empaquetado;
-CopyQ pasa su suite específica. Las suites generales siguen bloqueadas por
-problemas previos. Los demás cambios de aplicaciones, Apariencia y selectores
-nativos siguen pendientes de validación; los resultados históricos no los certifican. Las
-comprobaciones visuales y de hardware requieren una primera sesión real.
+Awesome, sin activar servicios ni cambiar la sesión actual. st opaca es la terminal
+predeterminada. La barra Aero opaca, Inicio con icono, tareas, lanzador, fondo,
+encaje y supervisión se validan con tests aislados; no se ha iniciado GUI.
+Las comprobaciones visuales y de hardware requieren una primera sesión real.
 
 ## Integración nativa
 
@@ -15,8 +13,10 @@ Awesome usa `naughty` para notificaciones y OSD, sin Dunst. Un propietario ajeno
 del servicio de notificaciones provoca un error de inicio, nunca su terminación.
 `notify-send` permanece como cliente. dwm conserva Dunst y su configuración.
 
-Fondo fotográfico completo y centrado por monitor mediante gears.wallpaper,
-sin rotación ni proceso externo de fondo. Menú nativo con **clic derecho sobre el
+Fondo persistente mediante el helper compartido wm-wallpaper: selector Zenity,
+copia privada en $XDG_DATA_HOME/wm/awesome/wallpaper y feh fill por monitor,
+sin rotación ni daemon. Restauración al entrar/cambiar pantallas; cancelar no cambia
+la elección. No se comparte la preferencia dwm. Sin imagen se usa #f6f5f4. Menú nativo con **clic derecho sobre el
 fondo** o **Super+Escape**: bloquear directamente; cerrar sesión, suspender,
 reiniciar y apagar mediante Confirmar/Cancelar. Cerrar sesión llama awesome.quit,
 no mata aplicaciones explícitamente; guardar el trabajo antes porque terminar
@@ -47,9 +47,10 @@ a comprobar el inventario antes de compilar. `--awesome` con DESTDIR comprueba
 dependencias sin instalar paquetes del sistema; su ausencia aborta indicando
 la ruta. Las entradas `awesome-*` de `scripts/dependencies.tsv` son su
 inventario separado. `--awesome` no necesita Dunst, xsetroot, dwmblocks, dmenu
-ni un checkout de dmenu o st; tampoco compila ni instala dwm. Solo compila el
-helper X11 `wm-close`. Usa Alacritty del paquete del sistema y su entrada
-`Alacritty.desktop`, seleccionada para Awesome mediante xdg-terminal-exec.
+ni un checkout de dmenu; tampoco compila ni instala dwm. Compila el helper X11
+`wm-close` y st en temporales desde fuentes versionadas; si falta el checkout st,
+lo obtiene por HTTPS en un temporal y verifica la revisión fijada. Entrega st,
+terminfo y `awesome-st.desktop`, seleccionada mediante xdg-terminal-exec.
 El instalador de ambas variantes conserva dmenu y st para dwm.
 No se borran binarios de una instalación anterior.
 
@@ -59,7 +60,7 @@ No se borran binarios de una instalación anterior.
 | Wrapper y supervisor, modo 755 | `/usr/local/bin/awesome-session`, `/usr/local/bin/awesome-supervisor` |
 | Helpers compartidos | `/usr/local/bin/wm-command`, `wm-launcher`, `wm-run`, `wm-control`, `wm-displays` |
 | Cierre normal X11 | `/usr/local/bin/wm-close` |
-| Preferencia de terminal Alacritty | `/usr/local/share/xdg-terminal-exec/awesome-xdg-terminals.list` |
+| Preferencia de terminal st | `/usr/local/share/xdg-terminal-exec/awesome-xdg-terminals.list` |
 | Selectores nativos | `awesome/config/picker.lua`, `launcher.lua`, `displays.lua` |
 | Notificaciones nativas | `/usr/local/share/wm/awesome/widgets/notifications.lua` |
 | Entrada de sesión, modo 644 | `/usr/local/share/xsessions/awesome.desktop` |
@@ -76,7 +77,7 @@ La base Arch comprobada es el paquete `awesome`, con `lua53` y `lua53-lgi`.
 Para tests se usa **lua5.3**, no el alias genérico `lua`.
 Los módulos awful/wibox/gears pertenecen a Awesome, sin frameworks de temas.
 El inventario incluye compilador/pkg-config y bibliotecas X11/Xft/fontconfig/FreeType
-para componentes legacy; el helper de cierre requiere libX11. Alacritty y
+para st; el helper de cierre requiere libX11. ncurses/tic y
 xdg-terminal-exec son requisitos propios de Awesome; Lua/lgi/GIO para los lanzadores nativos; Python
 para el backend transaccional de pantallas; st y los proveedores de atajos;
 nm-applet, CopyQ, Polkit, snixembed, bloqueo y secretos/GCR para la sesión.
@@ -100,7 +101,7 @@ Referencias oficiales:
 
 ## Validación reproducible
 
-Validación focalizada ejecutada para Alacritty y CopyQ, siempre aislada:
+Validación focalizada de terminal y CopyQ, siempre aislada:
 
 ```sh
 make test WM_TEST_SUITE=awesome-picker
@@ -109,7 +110,7 @@ make test WM_TEST_SUITE=awesome-copyq
 make test WM_TEST_SUITE=awesome-package
 ```
 
-El empaquetado verifica ausencia de builds/checkouts st/dmenu en --awesome y
+El empaquetado verifica st y terminfo reales, ausencia de dmenu en --awesome y
 conservación de ajustes personales de Alacritty. Los tests se han reanudado y
 migrado a las interfaces nativas: no se recuperan los workers Python retirados.
 La persistencia usa GIO real con archivos temporales sintéticos; procesos, buses,
@@ -168,9 +169,9 @@ no siguiendo foco; fullscreen por encima.
 
 | Atajo | Acción |
 | --- | --- |
-| Super+Intro | Abrir/enfocar/alternar Alacritty de forma nativa |
+| Super+Intro | Abrir/enfocar/alternar st opaca de forma nativa |
 | Super+Espacio | Selector nativo de aplicaciones, Apariencia, Pantallas y acciones |
-| Super+D | Prompt nativo; ejecuta en Alacritty con TTY y conserva salida hasta Enter |
+| Super+D | Prompt nativo; ejecuta en st con TTY y conserva salida hasta Enter |
 | Super+flechas | Izquierda/derecha: mitades a toda altura; arriba/abajo: mitades a todo ancho; combinar: cuartos; repetir libera el eje |
 | Super+M / Super+F | Maximizar/restaurar / fullscreen |
 | Super+Ñ | Centrar |
@@ -187,7 +188,7 @@ por nombre, descripción y palabras clave de las aplicaciones instaladas. Incluy
 entradas explícitas **Apariencia**, **Pantallas**, **Ejecutar comando**, red,
 sonido, contraseñas, CopyQ, energía y acciones de sesión. Las etiquetas se muestran
 como texto; abrir una aplicación conserva las reglas de su archivo `.desktop`.
-Las entradas `Terminal=true` usan Alacritty.
+Las entradas `Terminal=true` usan st.
 
 Escribir filtra la lista; arriba/abajo o Tab/Shift+Tab recorren opciones, Intro
 elige y Escape cancela. También se puede pulsar una fila. Super+D permite
@@ -223,15 +224,14 @@ Sin ventana coincidente, buscan el proceso local por su argv[0]: si sigue abiert
 sin ventana, informan y no duplican el arranque, salvo `force` (activo para Thunar).
 Una espera máxima de ocho segundos contiene repeticiones durante el arranque.
 No se ejecutan Jumpapp, wmctrl ni xdotool para estas acciones; dwm conserva su
-integración anterior. Alacritty es ahora la terminal predeterminada y una
-dependencia de Awesome; st conserva su perfil optativo.
+integración anterior. st es la terminal predeterminada; Alacritty conserva su
+perfil optativo y sus ajustes personales intactos.
 
-Alacritty se usa desde Super+Intro, Super+D, Estado de energía y las entradas
+st se usa desde Super+Intro, Super+D, Estado de energía y las entradas
 `Terminal=true`. Los comandos conservan TTY y salida hasta Enter. La preferencia
-`awesome-xdg-terminals.list` selecciona `Alacritty.desktop` solo para Awesome,
-sin escribir preferencias personales ni cambiar dwm/Plasma. `--awesome` ya no
-construye st ni terminfo; una instalación conjunta sigue preparando st para dwm.
-No se modifica la configuración personal de Alacritty.
+`awesome-xdg-terminals.list` selecciona `awesome-st.desktop` solo para Awesome,
+sin escribir preferencias personales ni cambiar dwm/Plasma. `--awesome` construye
+st y terminfo en temporales, sin tocar artefactos del checkout.
 
 ### Opciones nativas de aplicaciones
 
@@ -306,8 +306,10 @@ garantizada. Qt conserva Fusion. No se inicia el escritorio MATE.
 Fuentes: [metatema Menta](https://github.com/mate-desktop/mate-themes/blob/master/desktop-themes/Menta/index.theme.in),
 [GTK Settings](https://docs.gtk.org/gtk3/class.Settings.html).
 
-La barra inferior de 32 píxeles muestra las ventanas de cada monitor. Un clic
-activa/restaura; pulsar la activa la mantiene visible. Los indicadores `>`,
+La barra inferior de 32 píxeles se inspira en Windows Aero con degradados sólidos,
+brillos y bordes, sin transparencia ni desenfoque. Inicio lleva un icono propio;
+las tareas muestran icono y título, una por ventana sin agrupar. Un clic
+activa/restaura; pulsar la activa la minimiza. Los indicadores `>`,
 `!` y `[min]` distinguen foco, urgencia y minimización además del color.
 Iconos acotados y títulos con elipsis dejan sitio al estado y a la bandeja.
 Teclado, energía, volumen, batería y reloj aparecen en bloques individuales con
@@ -346,6 +348,48 @@ sin abrir el editor automáticamente. Las geometrías por ventana se conservan
 temporalmente por disposición. El backend y los monitores reales están
 pendientes de validación; no se han aplicado cambios de pantalla en esta fase.
 
+## Paridad y barra Aero
+
+Inicio y Super+Espacio también buscan ventanas normales y diálogos de todos los
+monitores, incluidas minimizadas. Elegir una restaura/enfoca/eleva sin trasladarla
+ni mover el cursor. Las ventanas cerradas mientras el selector está abierto se ignoran.
+
+Acciones personales en `$XDG_CONFIG_HOME/wm/awesome/menu.json` (o
+`~/.config/wm/awesome/menu.json`), independientes de dwm:
+
+```json
+{"Mis documentos": {"argv": ["thunar", "/ruta/absoluta"], "confirm": false}}
+```
+
+Archivo regular de hasta 64 KiB; argumentos literales, sin shell ni expansión de
+variables o `~`. No sustituye acciones integradas. `confirm: true` muestra
+Cancelar/Confirmar. Se relee al abrir Inicio; errores invalidan el archivo entero
+y se notifican sin ejecutar acciones personales.
+
+Arrastrar desde el título de Awesome o con Super muestra un contorno opaco:
+mitades en los lados, cuartos en esquinas y maximización en el borde superior.
+Respeta tamaños mínimos/máximos, incrementos y proporciones; un destino imposible
+no se ofrece. Al mover una ajustada recupera el tamaño normal bajo el cursor;
+un clic sin movimiento no restaura. Escape revierte; cierre de cliente o cambios
+de pantalla limpian preview y grabs. Redimensionar parte del rectángulo actual.
+
+**Límite:** Awesome 4.3 no procesa `_NET_WM_MOVERESIZE`; el arrastre/redimensión
+desde cabeceras dibujadas por aplicaciones no alcanza la paridad con dwm.
+No se ha añadido un fork ni otro helper para resolverlo. Se conservan la
+maximización EWMH y las acciones nativas de Naughty; la aplicación debe emitir
+su solicitud de activación. No se adivina una ventana por el texto del aviso.
+Fuentes: [event.c 4.3](https://github.com/awesomeWM/awesome/blob/v4.3/event.c),
+[EWMH](https://github.com/awesomeWM/awesome/blob/v4.3/lib/awful/ewmh.lua) y
+[Naughty D-Bus](https://github.com/awesomeWM/awesome/blob/v4.3/lib/naughty/dbus.lua).
+
+Los complementos Picom, red, CopyQ, Polkit y puente de bandeja tienen hasta tres
+reintentos con cinco segundos entre ellos; se confirma recuperación tras cinco
+segundos estables. XSettings se deshabilita si falla, sin reiniciar un PID que
+Lua conserva. Awesome y xss-lock siguen siendo críticos. «Estado de sesión» en
+Inicio muestra incidencias actuales y contador de fallos desde un archivo privado
+runtime, sin depender de Dunst/Naughty ni de su historial. Los avisos se agrupan.
+No se termina ningún proceso ajeno para recuperar un complemento.
+
 ## Comprobaciones manuales pendientes
 
 Solo después de autorización expresa, con salida disponible a dwm/Plasma:
@@ -371,7 +415,7 @@ Solo después de autorización expresa, con salida disponible a dwm/Plasma:
 - Atajos de aplicación nativos: abrir, enfocar y recorrer varias ventanas,
   alias WM_CLASS reales, arranque lento y recuperación de minimizadas.
 - Lista de ventanas por pantalla, iconos/títulos, contraste, muchas ventanas,
-  clic sin minimización accidental, fullscreen y movimiento entre monitores.
+  clic de minimización/restauración, fullscreen y movimiento entre monitores.
 - Snaps/restauración, centrado, fullscreen y cierre no forzado.
 - Barra inferior, bandeja única en primaria/fallback y hotplug real.
 - ES/US, volumen/OSD, batería y perfiles reales de energía, incluidos fallos.
@@ -385,13 +429,14 @@ mejora de tirones: su causa sigue abierta. Los tests aislados no acreditan
 renderizado, drivers, dock, PAM, audio o energía reales. Picom usa una configuración propia (`awesome-picom.conf`) con GLX y vsync,
 sin sombras, desenfoque ni animaciones. Mantiene la composición en fullscreen.
 Su eficacia contra tearing requiere comprobar el controlador y los monitores reales.
-Si picom termina, Awesome sigue funcionando; su salida queda en el log de sesión.
+Si picom termina, Awesome sigue funcionando y el supervisor intenta recuperarlo
+con el límite indicado; su salida queda en el log de sesión.
 No modifica Plasma ni Alacritty personal.
 
-El fondo se lee de `~/Downloads/cosmic-timetraveler-LhDWW8PhPoE-unsplash.jpg`.
-Awesome lo muestra completo, centrado y proporcional en cada pantalla, con bandas
-negras, y lo reajusta al conectar pantallas o cambiar su geometría. Mantén el
-archivo en esa ruta; si falta, se usa negro. La imagen personal no se publica.
+«Fondo de pantalla», desde Inicio o el menú del escritorio, guarda una copia privada:
+el original puede moverse o borrarse. Se aplica la misma imagen en fill a cada
+monitor. La elección tiene almacenamiento propio y no cambia el fondo de dwm;
+no se publica ninguna imagen personal.
 
 ## Energía y avisos
 
