@@ -1,6 +1,7 @@
 """Exercise actual supervisor with inert process, bus, socket and signal doubles."""
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import signal
@@ -31,10 +32,12 @@ class Process:
 
     def poll(self):
         self.polls += 1
-        if self.args[0] == "awesome" and self.polls > 4:
+        if self.args[0] == "awesome" and self.polls > self.owner.wm_limit:
             self.returncode = self.owner.wm_code
         if self.args[0] == self.owner.dead:
-            self.returncode = 3
+            peers = sum(p.args[0] == self.args[0] for p in self.owner.processes)
+            if not self.owner.recover_after or peers <= self.owner.recover_after:
+                self.returncode = 3
         return self.returncode
 
     def wait(self, timeout):
@@ -52,7 +55,7 @@ class World:
         self.agent = self.no_agent = self.no_secret = False
         self.bad_bus = self.bad_readiness = self.bad_config = False
         self.fail = self.dead = self.duplicate = self.interrupt = None
-        self.wm_code = 0
+        self.wm_code, self.wm_limit, self.recover_after = 0, 4, 0
         self.notification = "own"
         self.clock = 0
 
@@ -64,7 +67,7 @@ class World:
         self.calls.append(argv)
         name = argv[0]
         pid_query = name == "gdbus" and argv[-2].endswith("GetConnectionUnixProcessID")
-        if name == "dbus-send":
+        if name in ("dbus-send", "notify-send"):
             assert kwargs["timeout"] == 2
         elif name == "gdbus" and argv[-1] == "org.kde.StatusNotifierWatcher" and self.processes:
             assert kwargs["timeout"] == 1
@@ -113,6 +116,8 @@ class World:
             self.secret = not self.no_secret
         elif name == "xset":
             assert argv == [name, "s", "600", "600"]
+        elif name == "notify-send":
+            assert "Incidencias de sesión" in argv
         else:
             raise AssertionError(("unmocked command", argv))
         return types.SimpleNamespace(returncode=code, stdout=output, stderr="")
@@ -129,6 +134,7 @@ class World:
         self.kills.append((pid, sig))
 
     def sleep(self, seconds):
+        self.clock += seconds
         if self.interrupt is not None:
             self.handlers[self.interrupt](self.interrupt, None)
 
@@ -209,15 +215,36 @@ try:
     for name in ("xsettingsd", "awesome", "picom", "lxqt-policykit-agent", "snixembed", "nm-applet", "copyq", "xss-lock"):
         world = World()
         world.fail = name
-        exercise(world, failure=True)
+        exercise(world, failure=name in ("awesome", "xss-lock"))
     for name in ("xsettingsd", "awesome", "lxqt-policykit-agent", "snixembed", "xss-lock"):
         world = World()
         world.dead = name
-        exercise(world, failure=True)
+        exercise(world, failure=name in ("awesome", "xss-lock"))
     for name in ("picom", "nm-applet", "copyq"):
         world = World()
         world.dead = name
         exercise(world)
+    world = World()
+    world.dead, world.wm_limit = "copyq", 100
+    folder = exercise(world)
+    health_path = next((folder / "runtime").glob("wm-*/awesome-health.json"))
+    health = json.loads(health_path.read_text())
+    assert health["issues"]["copyq"]["disabled"] and health["issues"]["copyq"]["retries"] == 3
+    assert health["failures"] == 4 and sum(p.args[0] == "copyq" for p in world.processes) == 4
+    assert health_path.stat().st_mode & 0o777 == 0o600
+    assert 1 <= sum(c[0] == "notify-send" for c in world.calls) <= 4
+    world = World()
+    world.dead, world.wm_limit, world.recover_after = "copyq", 100, 1
+    folder = exercise(world)
+    health = json.loads(next((folder / "runtime").glob("wm-*/awesome-health.json")).read_text())
+    assert not health["issues"] and health["failures"] == 1
+    assert sum(p.args[0] == "copyq" for p in world.processes) == 2
+    world = World()
+    world.dead, world.wm_limit = "xsettingsd", 100
+    folder = exercise(world)
+    health = json.loads(next((folder / "runtime").glob("wm-*/awesome-health.json")).read_text())
+    assert health["issues"]["xsettingsd"]["disabled"] and health["issues"]["xsettingsd"]["retries"] == 0
+    assert sum(p.args[0] == "xsettingsd" for p in world.processes) == 1
     world = World()
     world.stubborn = True
     exercise(world)

@@ -2,7 +2,8 @@
 # Own child process groups, never the desktop's shared agents or services.
 import fcntl
 import hashlib
-from wm_session import themes, resources, xsettings_owner
+import json
+from wm_session import themes, resources, xsettings_owner, write_private
 import os
 from pathlib import Path
 import re
@@ -106,6 +107,95 @@ def stop(process):
             process.wait(timeout=3)
     except ProcessLookupError:
         pass
+
+
+def launch_optional(service, children, log):
+    service["process"] = None
+    try:
+        process = start(children, service["argv"], log, required=False)
+        service["process"] = process
+        if service["check"]:
+            service["check"](process)
+        if process.poll() is not None:
+            raise RuntimeError("el componente terminó al arrancar")
+        service["stable"] = time.monotonic() + 5
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        service["failures"] += 1
+        service["problem"] = "No pudo iniciar; consulta el registro"
+        event("optional {}: {}".format(service["argv"][0], error))
+        if service["process"] is not None:
+            try:
+                stop(service["process"])
+            except (OSError, subprocess.SubprocessError) as cleanup:
+                service["restart"] = False
+                event("cleanup failure: " + str(cleanup))
+            else:
+                children.remove((service["process"], False))
+        service["process"] = None
+    service["next"] = time.monotonic() + 5
+
+
+def optional(services, children, argv, log, check=None, restart=True):
+    service = dict(argv=argv, check=check, restart=restart, retries=0,
+                   failures=0, problem=None, process=None)
+    services.append(service)
+    launch_optional(service, children, log)
+    return service["process"]
+
+
+def recover(services, children, log):
+    for service in services:
+        process = service["process"]
+        if process is not None:
+            code = process.poll()
+            if code is None:
+                if time.monotonic() >= service["stable"]:
+                    service["problem"] = None
+                continue
+            service["failures"] += 1
+            service["problem"] = "Terminó con código {}".format(code)
+            event("optional {} exited {}".format(service["argv"][0], code))
+            try:
+                stop(process)
+            except (OSError, subprocess.SubprocessError) as error:
+                service["restart"] = False
+                event("cleanup failure: " + str(error))
+            else:
+                children.remove((process, False))
+            service["process"] = None
+            service["next"] = time.monotonic() + 5
+        if service["restart"] and service["retries"] < 3 and time.monotonic() >= service["next"]:
+            service["retries"] += 1
+            event("restart {}/3 {}".format(service["retries"], service["argv"][0]))
+            launch_optional(service, children, log)
+
+
+def publish_health(path, services, previous, notify=True):
+    issues = {}
+    for service in services:
+        if service["problem"]:
+            issues[service["argv"][0]] = {
+                "message": service["problem"], "retries": service["retries"],
+                "disabled": not service["restart"] or service["retries"] >= 3 and service["process"] is None}
+    state = {"issues": issues, "failures": sum(service["failures"] for service in services)}
+    if state == previous:
+        return previous
+    try:
+        write_private(path, json.dumps(state, ensure_ascii=False))
+    except (OSError, ValueError, RuntimeError) as error:
+        event("health write failure: " + str(error))
+        return previous
+    if notify and issues and (previous is None or issues != previous["issues"]):
+        try:
+            result = command(["notify-send", "--app-name=wm-session", "--urgency=normal",
+                              "--hint=string:x-dunst-stack-tag:wm-session", "Incidencias de sesión",
+                              "Componentes afectados: " + ", ".join(sorted(issues))
+                              + ". Consulta Estado de sesión; Awesome sigue funcionando."], required=False, timeout=2)
+            if result.returncode:
+                event("health notification unavailable")
+        except (OSError, subprocess.SubprocessError) as error:
+            event("health notification failure: " + str(error))
+    return state
 
 
 def ready(process, check, name, interrupted, timeout=15):
@@ -246,8 +336,10 @@ def run():
             event("session begin pid={} display={} config={}".format(
                 os.getpid(), os.environ["DISPLAY"], DATA / "awesome/rc.lua"))
             event("log={} previous={}.previous".format(path, path))
-            children = []
+            children, services = [], []
             interrupted = False
+            health_path = directory / "awesome-health.json"
+            os.environ["WM_AWESOME_HEALTH"] = str(health_path)
 
             def interrupt(signum, frame):
                 nonlocal interrupted
@@ -259,9 +351,11 @@ def run():
             try:
                 event("prepare appearance")
                 config = appearance_config(directory)
-                settings = start(children, ["xsettingsd", "--config", str(config)], log)
-                ready(settings, lambda: bool(xsettings_owner()), "XSettings Awesome", lambda: interrupted)
-                os.environ["WM_AWESOME_XSETTINGSD_PID"] = str(settings.pid)
+                settings = optional(services, children, ["xsettingsd", "--config", str(config)], log,
+                                    check=lambda p: ready(p, lambda: bool(xsettings_owner()), "XSettings Awesome", lambda: interrupted),
+                                    restart=False)
+                os.environ["WM_AWESOME_XSETTINGSD_PID"] = str(settings.pid) if settings else ""
+                publish_health(health_path, services, None, notify=False)
                 event("check secrets service")
                 if not owns("org.freedesktop.secrets"):
                     command(["systemctl", "--user", "start", "gnome-keyring-daemon.socket"])
@@ -290,18 +384,21 @@ def run():
                 wm = start(children, ["awesome", "-c", str(DATA / "awesome/rc.lua")], log, required=False)
                 ready(wm, lambda: wm_ready(wm), "Awesome", lambda: interrupted)
                 ready(wm, lambda: notification_ready(wm), "notificaciones Awesome", lambda: interrupted)
-                start(children, ["picom", "--config", str(DATA / "awesome-picom.conf")], log, required=False)
-                start(children, ["lxqt-policykit-agent"], log)
-                bridge = start(children, ["snixembed"], log)
-                ready(bridge, lambda: owns("org.kde.StatusNotifierWatcher", timeout=1), "snixembed", lambda: interrupted)
-                start(children, ["nm-applet"], log, required=False)
-                start(children, ["copyq"], log, required=False)
+                optional(services, children, ["picom", "--config", str(DATA / "awesome-picom.conf")], log)
+                optional(services, children, ["lxqt-policykit-agent"], log)
+                optional(services, children, ["snixembed"], log,
+                         check=lambda p: ready(p, lambda: owns("org.kde.StatusNotifierWatcher", timeout=1), "snixembed", lambda: interrupted))
+                optional(services, children, ["nm-applet"], log)
+                optional(services, children, ["copyq"], log)
                 start(children, ["xss-lock", "--transfer-sleep-lock", "--", "i3lock", "--nofork"], log)
                 event("session ready")
+                health = publish_health(health_path, services, None)
                 while wm.poll() is None and not interrupted:
                     for process, required in children:
                         if required and process.poll() is not None:
                             raise RuntimeError("terminó un componente necesario: {}".format(process.args[0]))
+                    recover(services, children, log)
+                    health = publish_health(health_path, services, health)
                     time.sleep(1)
                 if not interrupted and wm.returncode:
                     raise RuntimeError("Awesome terminó con código {}".format(wm.returncode))
