@@ -41,7 +41,19 @@ printf 'ID=synthetic\n' > "$WM_OS_RELEASE"
 printf '#!/bin/sh\n[ "$1" = -c ] && [ "$2" = "import sys; assert sys.version_info >= (3, 9)" ] && [ "${MOCK_PYTHON_FAIL-0}" = 0 ]\n' > "$bin/python3"
 printf '#!/bin/sh\ncase "$1" in --exists) [ "${MOCK_PC_FAIL-0}" = 0 ] ;; --variable=pc_path) printf "/synthetic/pkgconfig\\n" ;; esac\n' > "$bin/pkg-config"
 printf '#!/bin/sh\n[ "${MOCK_CC_FAIL-0}" = 0 ] || exit 42\nwhile [ "$1" != -o ]; do shift; done\nprintf "synthetic helper\\n" > "$2"\n' > "$bin/cc"
-printf '#!/bin/sh\n[ "$1" = -C ] && [ "$3" = ls-files ] || exit 99\nwhile IFS= read -r file; do printf "%%s\\n" "$file"; done < "$2/tracked"\n' > "$bin/git"
+printf '%s\n' '#!/bin/sh' \
+    'if [ "$1" = init ]; then' \
+    '  [ "${MOCK_ST_BOOTSTRAP-0}" = 1 ] || exit 99' \
+    '  mkdir -p "$3/.git"; printf "st.info\n" > "$3/tracked"; printf "synthetic terminfo source\n" > "$3/st.info"; exit 0' \
+    'fi' \
+    '[ "$1" = -C ] || exit 99' \
+    'case "$3" in' \
+    'ls-files) while IFS= read -r file; do printf "%s\n" "$file"; done < "$2/tracked" ;;' \
+    'fetch) [ "${MOCK_ST_BOOTSTRAP-0}" = 1 ] && [ "${MOCK_ST_FETCH_FAIL-0}" = 0 ] && [ "$4" = https://github.com/synthetic/st.git ] && [ "$5" = 1111111111111111111111111111111111111111 ] ;;' \
+    'checkout) [ "$4:$5" = --detach:1111111111111111111111111111111111111111 ] ;;' \
+    'rev-parse) printf "1111111111111111111111111111111111111111\n" ;;' \
+    '*) exit 99 ;;' \
+    'esac' > "$bin/git"
 printf '#!/bin/sh\n[ "$1" = -C ] || exit 99\ncase "$3" in clean) exit 0 ;; CC=cc) ;; *) exit 99 ;; esac\n[ "${MOCK_MAKE_FAIL-0}" = 0 ] || exit 42\nprintf "synthetic binary\\n" > "$2/st"\n' > "$bin/make"
 printf '#!/bin/sh\nmkdir -p "$3/s"\nprintf "synthetic terminfo\\n" > "$3/s/st-256color"\n' > "$bin/tic"
 chmod 755 "$bin/tic"
@@ -101,7 +113,7 @@ check()
 }
 run || { /usr/bin/tail -30 "$work/output"; fail 'initial staging'; }
 check
-for file in rc.lua config/keys.lua config/session.lua config/displays.lua config/themes.json config/preferences.lua config/terminal.lua config/power-options.lua widgets/notifications.lua widgets/init.lua; do
+for file in rc.lua config/drag.lua config/health.lua config/menu.lua widgets/aero.lua config/keys.lua config/session.lua config/displays.lua config/themes.json config/preferences.lua config/terminal.lua config/power-options.lua widgets/notifications.lua widgets/init.lua; do
 	cmp "$fixture/awesome/$file" "$dest/usr/local/share/wm/awesome/$file"
 	[ "$(stat -c %a "$dest/usr/local/share/wm/awesome/$file")" = 644 ] || fail 'Lua mode'
 done
@@ -200,6 +212,18 @@ reject
 rm "$dest/usr/local/share/wm/awesome/config"
 mv "$work/config" "$dest/usr/local/share/wm/awesome/config"
 run || fail 'repair after conflict'
+check
+
+# Missing st uses only a verified temporary checkout; Git/network is fully mocked.
+printf 'st\tgit@github.com:synthetic/st.git\t1111111111111111111111111111111111111111\n' > "$fixture/checkouts.tsv"
+mv "$fixture/st" "$work/st-held"
+MOCK_ST_BOOTSTRAP=1; export MOCK_ST_BOOTSTRAP
+run || fail 'temporary st bootstrap'
+[ ! -e "$fixture/st" ] || fail 'bootstrap changed source directory'
+MOCK_ST_FETCH_FAIL=1; export MOCK_ST_FETCH_FAIL
+reject
+unset MOCK_ST_FETCH_FAIL MOCK_ST_BOOTSTRAP
+mv "$work/st-held" "$fixture/st"
 check
 
 # Real C builds in staging, still using synthetic configuration and no runtime apps.
