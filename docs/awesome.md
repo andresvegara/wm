@@ -309,8 +309,10 @@ Fuentes: [metatema Menta](https://github.com/mate-desktop/mate-themes/blob/maste
 La barra inferior de 32 píxeles se inspira en Windows Aero con degradados sólidos,
 brillos y bordes, sin transparencia ni desenfoque. Inicio lleva un icono propio;
 las tareas muestran icono y título, una por ventana sin agrupar. Un clic
-activa/restaura; pulsar la activa la minimiza. Los indicadores `>`,
-`!` y `[min]` distinguen foco, urgencia y minimización además del color.
+activa/restaura; pulsar la activa la minimiza. El foco se distingue solo por
+color y borde, sin cambiar el texto; los títulos reales siguen actualizándose.
+`!` y `[min]` indican urgencia y minimización. Las cabeceras conservan su altura
+compacta y comparten fuente, paleta, degradado opaco y controles con bordes de la barra.
 Iconos acotados y títulos con elipsis dejan sitio al estado y a la bandeja.
 Teclado, energía, volumen, batería y reloj aparecen en bloques individuales con
 fondo y borde propios; separadores distinguen ventanas, indicadores y la bandeja
