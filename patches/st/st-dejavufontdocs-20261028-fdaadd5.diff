@@ -1,0 +1,26 @@
+diff --git a/README b/README
+index b8b0160..fa9b3bc 100644
+--- a/README
++++ b/README
+@@ -9,7 +9,7 @@ This checkout is not installed or activated. Validate from the parent wm
+ repository with make test. Do not run the installation commands below during
+ this preparation phase.
+ 
+-The wm profile uses Hack Nerd Font Mono at 11 points as its only primary font,
++The wm profile uses DejaVuSansM Nerd Font Mono at 12 points as its only primary font,
+ the existing Alacritty palette, zero fixed padding, a blinking block
+ cursor, Ctrl+Insert copy and familiar copy/paste/zoom shortcuts. Backgrounds
+ are opaque by default (alpha 1.0); -A can explicitly request transparency.
+diff --git a/st.1 b/st.1
+index bdf9b7e..68a7e08 100644
+--- a/st.1
++++ b/st.1
+@@ -189,7 +189,7 @@ Shift-mouse selection joins rows wrapped automatically by the terminal, but
+ preserves explicit line breaks. Applications drawing rows separately may lose
+ that wrapping information; use their own OSC 52 copy action when available.
+ .SH WM DEVELOPMENT
+-This profile uses Hack Nerd Font Mono at 11 points as its only primary font,
++This profile uses DejaVuSansM Nerd Font Mono at 12 points as its only primary font,
+ a blinking block cursor, zero fixed padding and per-pixel window resizing.
+ Missing glyphs use the existing Fontconfig fallback. Do not include an emoji
+ font in the primary family list: it may be selected for the whole terminal.

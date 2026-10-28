@@ -372,6 +372,8 @@ Order is recorded in `st/series`:
 | opaquedocs | Document opaque defaults and compositor-owned blur policy. |
 | osc52 | Personal profile: enable existing OSC 52 clipboard writes. |
 | osc52docs | Document clipboard permissions and visual-selection line breaks. |
+| dejavufont | Personal profile: DejaVuSansM Nerd Font Mono at 12 points. |
+| dejavufontdocs | Document the updated primary font and size. |
 
 Source artifacts are preserved unchanged in `upstream/st/`, with SHA256SUMS
 checked by make test. Sources and attribution:
@@ -405,6 +407,11 @@ It enables the existing upstream OSC 52 write path, not clipboard reads or a
 new protocol. Local or remote terminal applications may overwrite the system
 clipboard. Tests exercise enabled/disabled writes with mocked X11 selection
 calls and preserve automatic-wrap joining versus explicit selection newlines.
+
+Dejavufont is an original local configuration change after osc52docs; it replaces
+Hack at 11 points with DejaVuSansM Nerd Font Mono at 12 points, retaining the
+existing fallback. Dejavufontdocs follows it and changes only documentation.
+Both depend on the preceding series and are based on the same official 0.9.3 base.
 
 The scrollback patch adapts [the community 0.9.2 patch](https://st.suckless.org/patches/scrollback/st-scrollback-0.9.2.diff)
 to this series, separately from bindings. It tracks valid history lines instead

@@ -197,12 +197,12 @@ testprofile(void)
 	assert(pattern);
 	assert(FcPatternGetString(pattern, FC_FAMILY, 0, &family)
 		== FcResultMatch);
-	assert(!strcmp((const char *)family, "Hack Nerd Font Mono"));
+	assert(!strcmp((const char *)family, "DejaVuSansM Nerd Font Mono"));
 	/* A primary emoji family can win matching and impose bitmap-sized cells. */
 	assert(FcPatternGetString(pattern, FC_FAMILY, 1, &family)
 		!= FcResultMatch);
 	assert(FcPatternGetDouble(pattern, FC_SIZE, 0, &size) == FcResultMatch);
-	assert(size == 11);
+	assert(size == 12);
 	FcPatternDestroy(pattern);
 }
 
